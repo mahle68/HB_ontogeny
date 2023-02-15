@@ -1,11 +1,14 @@
 #This code downloads honey buzzard GPS and IMU data and matches them together.
 #Elham Nourani PhD.
 #Feb 7. 2023. Konstanz, DE.
+#update Feb 15: instead of downloading all IMU at the same time and creating one df, now there are separate scripts for the different sensors. 
+#to be combined at the end with the GPS data
 
 library(move)
 library(tidyverse)
 library(lubridate)
 library(mapview)
+library(parallel)
 
 #download gps and IMU from movebank. focus on one individual: D324-512
 
@@ -49,8 +52,19 @@ lapply(IMU, function(x){
 #test the code with a sample
 #sample <- lapply(IMU, function(x) x %>% slice(1:100))
 
+#prep cluster
+mycl <- makeCluster(6) 
+
+clusterExport(mycl, "IMU") #define the variable that will be used within the function
+
+clusterEvalQ(mycl, {
+  library(tidyverse)
+
+})
+
+
 b <- Sys.time()
-axes_separated <- lapply(sample, function(x){
+axes_separated <- parLapply(mycl, IMU, function(x){
   
   sensor <- substr(x$sensor_type,1,3)[1]
   
@@ -71,7 +85,7 @@ axes_separated <- lapply(sample, function(x){
     
   } else {
     
-    axes <- lapply(split(x,seq(nrow(x))), function(y){ #every 4th element is some sort of an index.... dont include
+    axes <- lapply(split(x,seq(nrow(x))), function(y){
       raw_data <- unlist(strsplit(y %>% dplyr::select(contains("_raw")) %>%  pull(), " "))
       
       y %>% 
@@ -87,6 +101,6 @@ axes_separated <- lapply(sample, function(x){
   axes
 })
 
-Sys.time() - b
+Sys.time() - b #on 6 cores, took 1.29 hrs for one track
 
-
+stopCluster(mycl)
