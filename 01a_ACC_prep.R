@@ -53,34 +53,16 @@ saveRDS(acc_g, file = "/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwd
 
 acc_g <- readRDS("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/git_repository/R_files/Pritish_collab_IMU/acc_2inds.rds")
 
-
-# #according to eobs manual, the slope for ACC sensor of IMU is 1/1024. The intercept is 2048
-# calib <- data.frame(TagID = unique(acc$tag_local_identifier),
-#                     cx = (1/1024), cy = (1/1024), cz = (1/1024),
-#                     nx = 2048, ny = 2048,  nz = 2048)
-# acc_g <- acc %>% 
-#   TransformRawACC(calibration.values = calib, units = "g")
-# 
-# #make sure the values fall between -2 and 2
-# axes <- lapply(split(acc_g,seq(nrow(acc_g))), function(y){
-#   raw_data <- unlist(strsplit(y %>% dplyr::select("accelerationTransformed") %>%  pull(), " "))
-#   
-#   y %>% 
-#     mutate(x_axis_ = raw_data[seq(1,length(raw_data),3)] %>%  str_c(collapse = " "), #create one long character string from the 10 values
-#            y_axis_ = raw_data[seq(2,length(raw_data),3)] %>%  str_c(collapse = " "),
-#            z_axis_ = raw_data[seq(3,length(raw_data),3)] %>%  str_c(collapse = " ")) 
-#   
-# }) %>% 
-#   reduce(rbind)
-
 # STEP 2: estimate metrics -------------------------------------------------
+
+
+acc_g <- readRDS("/home/enourani/ownCloud/Work/Projects/HB_ontogeny_eobs/git_repository/R_files/Pritish_collab_IMU/acc_2inds.rds") %>% 
+  rename(accelerationTransformed = eobs_acceleration_g)
 
 lapply(split(acc_g, acc_g$individual_local_identifier), function(x){
   
-  animalID <- unique(x$individual_local_identifier)
-  
   #wing beat frequency and odba
-  wave_acc <- ACCwave(x, transformedData = T, showProgress = F)
+  wave_acc <- ACCwave(x, transformedData = T, showProgress = T)
   
   #flight vs non-flight assignment based on amplitude and odba.
   wave_behav_acc <- WingBeatsSelection(wave_acc,forclustering = c("amplitude","odbaAvg"), minbeat = 0, maxbeat = max(wave_acc$beatsSec)) %>% 
@@ -91,9 +73,10 @@ lapply(split(acc_g, acc_g$individual_local_identifier), function(x){
   
   #append to original acc data
   acc_metrics <- wave_behav_acc %>% 
-    full_join(x, by = c("timestamp", "individual_local_identifier", "event_id"))
+    full_join(x, by = c("timestamp", "individual_local_identifier", "event_id")) %>% 
+    rename(eobs_acceleration_g = accelerationTransformed)
   
-  saveRDS(acc_metrics, file = paste0("ACCsegmentation_Mar23/animal_",animalID,"_classifiedAcc.rds"))
+  saveRDS(acc_metrics, file = paste0("Pritish_collab_IMU/animal_",unique(acc_metrics$tag_local_identifier),"_classifiedAcc.rds"))
 })
 
 # STEP 2: stitch the gps and acc together -------------------------------------------------
