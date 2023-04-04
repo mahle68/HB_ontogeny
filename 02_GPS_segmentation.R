@@ -8,13 +8,16 @@ library(tidyverse)
 library(lubridate)
 library(mapview)
 library(parallel)
+library(plyr)
+library(data.table)
 library(doParallel)
 detectCores()
 doParallel::registerDoParallel(detectCores()-2) 
 #dir.create("prepped")
 #library(data.table) #for Martina's rbindlist code
 #download gps and IMU from movebank. focus on one individual: D324-512
-setwd("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/git_repository/R_files/")
+#setwd("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/git_repository/R_files/")
+setwd("/home/enourani/ownCloud/Work/Projects/HB_ontogeny_eobs/git_repository/R_files/")
 
 creds <- movebankLogin(username = "mahle68", rstudioapi::askForPassword())
 EHB_FN_id <- getMovebankID("European Honey Buzzard_Finland", creds)
@@ -22,15 +25,20 @@ EHB_FN_id <- getMovebankID("European Honey Buzzard_Finland", creds)
 #check for sensors available. Acc = 2365683; Mag = 77740402; Orientation: 819073350
 getMovebankSensors(EHB_FN_id,login = creds)
 
-mv_ls <- getMovebankData(EHB_FN_id,  animalName = c("D324_512", "D320_475"), removeDuplicatedTimestamps = T, login = creds)
+#mv_ls <- getMovebankData(EHB_FN_id,  animalName = c("D324_512", "D320_475"), removeDuplicatedTimestamps = T, login = creds)
+#download data for all individuals
+mv_ls <- getMovebankData(EHB_FN_id, removeDuplicatedTimestamps = T, login = creds)
 
+saveRDS(mv_ls,"/home/enourani/Desktop/HB_data_Apr23/all_GPS_Apr4.rds")
 
 mv_ls <- split(mv_ls)
 
 #keep only move objects (individuals) with more than 30 locations (needed for segmentation)
 mv_ls <- mv_ls[sapply(mv_ls, n.locs) >= 30]
 
-dir.create("GPSsegmentation_Mar23/classifiedData/")
+dir.create("GPS_seg_Apr23/classifiedData/")
+
+(b <- Sys.time())
 
 lapply(mv_ls, function(mv){
   
@@ -170,9 +178,11 @@ lapply(mv_ls, function(mv){
     
     # Rbind all bursts and save classified and smoothed dataframe per individual
     HRdf_smooth <- as.data.frame(rbindlist(burst_ls_class_smooth))
-    save(HRdf_smooth, file = paste0("GPSsegmentation_Mar23/classifiedData/animal_",animalID,"_classifiedBursts_df.rdata"))
+    save(HRdf_smooth, file = paste0("GPS_seg_Apr23/classifiedData/animal_",animalID,"_classifiedBursts_df.rdata"))
   }
 })
+
+Sys.time() - b #1.7 hrs
 
 #STEP 3: plotting ------------------------------------------------------------------------
   
