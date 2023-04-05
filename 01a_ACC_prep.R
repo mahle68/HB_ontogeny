@@ -25,7 +25,7 @@ getMovebankSensors(EHB_FN_id,login = creds)
 # STEP 1: download data and convert units to g -------------------------------------------------
 
 #download raw acc values
-acc <- getMovebankNonLocationData(EHB_FN_id, sensorID = 2365683, animalName = c("D324_512", "D320_475"), login = creds, removeDuplicatedTimestamps = T)
+acc <- getMovebankNonLocationData(EHB_FN_id, sensorID = 2365683, login = creds, removeDuplicatedTimestamps = T)
 
 #write a ftn for g conversion
 g_transform <- function(x) {
