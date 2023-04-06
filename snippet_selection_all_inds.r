@@ -7,7 +7,7 @@ library(tidyverse)
 library(lubridate)
 library(sf)
 library(mapview)
-
+library(parallel)
 
 wgs <- "+proj=longlat +datum=WGS84 +no_defs"
 
@@ -18,6 +18,38 @@ setwd("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projec
 g_transform <- function(x) {
   (x-2048)*(1/1024) #slope according to the eobs manual
 }
+
+quat_conversions <- function(w, x, y, z) {
+  
+  r = sqrt(x^2 + y^2 + z^2)
+  w = w/32768
+  
+  if(r != 0){
+    s = sqrt(1-w^2)/r
+  } else{
+    s = 0
+  }
+ s
+}
+
+# quat_conversions <- function(w, x, y, z) {
+#   
+#   r = sqrt(x^2 + y^2 + z^2)
+#   w = w/32768
+#   
+#   if(r != 0){
+#     s = sqrt(1-w^2)/r
+#   } else{
+#     s = 0
+#   }
+#   
+#   y = s*y
+#   
+#   z = s*z
+#   
+#   return(data.frame(w = w, x = x, y = y, z = z))
+# }
+
 
 ## STEP 1: open data  ----------------------------------------------------------------
 
@@ -98,44 +130,110 @@ saveRDS(IMU, file = "IMU_for_all_Apr5_23.rds") #this is all raw values. no conve
 IMU <- readRDS("IMU_for_all_Apr5_23.rds")
 snippet_ls <- readRDS("IMU_snippet_ls_all_inds_per_burst.rds") #one list per individual. with all the snippets in it
                       
-
 lapply(snippet_ls, function(ind){
   
-  snp <- ind %>% 
-    mutate(timelag = as.numeric(difftime(lead(timestamp, 1), timestamp, units = "secs"))) %>% 
-    mutate(burst_id = cumsum(ifelse(timelag == 1,0,1)))
-
-  #create a directory for the snippet
   
-  dir.create(paste0("/home/enourani/ownCloud/Work/Projects/HB_ontogeny_eobs/git_repository/R_files/Pritish_collab_IMU/IMU_snippets_Apr2/", 
-                     unique(ind$snippet_id)))
+  for(i in unique(ind$snippet_id)){
+    
+    snp <- ind %>% 
+      filter(snippet_id == i)
+    
+    #visualize:
+    # snp_sf <- snp %>% 
+    #   st_as_sf(coords = c("location_long", "location_lat"), crs = wgs) 
+    # mapview(snp_sf, zcol = "snippet_id")
+    
+    #create a directory to save the files for this ind-snippet
+    
+    path <- paste0("/home/enourani/ownCloud/Work/Projects/HB_ontogeny_eobs/git_repository/R_files/Pritish_collab_IMU/IMU_snippets_Apr6/", unique(snp$tag_local_identifier), 
+                   "_", unique(snp$snippet_id))
+    dir.create(path)
+    
+    #save gps-------------------------------------------------------------------------------
+    write.csv(snp, paste0(path, "/gps.csv"))
+    
+    #extract IMU---------------------------------------------------------------------------- 
+    
+    #MAG
+    m <- IMU$mag %>% 
+      filter(individual_local_identifier == unique(snp$local_identifier)) %>% 
+      filter(dplyr::between(timestamp, min(snp$timestamp)-20, max(snp$ timestamp)+20)) %>% #adding the time ensures that we get the 8-sec IMU window before and after the gps burst  
+      dplyr::select(c("tag_local_identifier", "timestamp", "eobs_start_timestamp", "sensor_type", "magnetic_fields_raw"))
+    
+    write.csv(m, paste0(path, "/mag.csv"))
+    
+    #ACC
+    a <- IMU$acc %>% 
+      filter(individual_local_identifier == unique(snp$local_identifier)) %>% 
+      filter(dplyr::between(timestamp, min(snp$timestamp)-20, max(snp$ timestamp)+20))
+    
+    #convert the acc to units of g:
+    a_g <- lapply(split(a,seq(nrow(a))), function(burst){
+      
+      g_data <- unlist(strsplit(burst %>% dplyr::select("eobs_accelerations_raw") %>%  pull(), " ")) %>% 
+        as.numeric() %>% 
+        g_transform()
+      
+      burst <- burst %>% 
+        mutate(eobs_acceleration_g = str_c(as.character(g_data), collapse = " "))
+      
+    }) %>% 
+      reduce(rbind) %>% 
+      dplyr::select(c("tag_local_identifier", "timestamp", "eobs_start_timestamp", "sensor_type", "eobs_acceleration_g"))
+    
+    write.csv(a_g, paste0(path, "/acc.csv"))
+    
+    #QUAT
+    q <- IMU$quat %>% 
+      filter(individual_local_identifier == unique(snp$local_identifier)) %>% 
+      filter(dplyr::between(timestamp, min(snp$timestamp)-20, max(snp$ timestamp)+20)) %>% 
+      dplyr::select(c("tag_local_identifier", "timestamp", "eobs_start_timestamp", "sensor_type", "orientation_quaternions_raw"))
+    
+    #convert the quaternions:
+    q_c <- lapply(split(q,seq(nrow(q))), function(burst){
+      
+      raw_data <- unlist(strsplit(burst %>% dplyr::select("orientation_quaternions_raw") %>%  pull(), " ")) %>% 
+        as.numeric()
+      
+      #extract values for each axis
+      quat_df <- data.frame(w_raw = raw_data[seq(1,length(raw_data),4)], #create one long character string from the 10 values
+                            x_raw = raw_data[seq(2,length(raw_data),4)], 
+                            y_raw = raw_data[seq(3,length(raw_data),4)],
+                            z_raw = raw_data[seq(4,length(raw_data),4)]) %>% 
+        mutate(r = sqrt(x_raw^2 + y_raw^2 + z_raw^2), #these lines are from the eobs manual p. 110
+               w = w_raw/32768) %>% 
+        mutate(s = ifelse(r != 0, sqrt(1-w^2)/r, 0)) %>% 
+        mutate(y = s*y_raw,
+               z = s*z_raw) #%>% 
+        # dplyr::select(c("w", "x_raw", "y", "z")) %>% 
+        # pivot_wider()
+        # s_all(~str_c(., collapse = " "))
+      
+      #extract s for quat conversions
+      quat_transformed <- quat_conversions(quat_df$w_axis, quat_df$x_axis, quat_df$y_axis, quat_df$z_axis)
+      
+      # 
+      # axes <- data.frame() %>% 
+      #   mutate(w_axis_ = raw_data[seq(1,length(raw_data),4)] %>%  str_c(collapse = " "), #create one long character string from the 10 values
+      #          x_axis_ = raw_data[seq(2,length(raw_data),4)] %>%  str_c(collapse = " "), 
+      #          y_axis_ = raw_data[seq(3,length(raw_data),4)]%>%  str_c(collapse = " "),
+      #          z_axis_ = raw_data[seq(4,length(raw_data),4)]%>%  str_c(collapse = " ")) %>% 
+      #   rename_if(stringr::str_detect(names(.), "_axis_"), ~paste(sensor, ., sep = "_"))
+      # 
+      
+      burst <- burst %>% 
+        mutate(eobs_acceleration_g = str_c(as.character(g_data), collapse = " "))
+      
+    }) %>% 
+      reduce(rbind) %>% 
+      dplyr::select(c("tag_local_identifier", "timestamp", "eobs_start_timestamp", "sensor_type", "eobs_acceleration_g"))
+    
+    write.csv(q_c, paste0(path, "/quat.csv"))
+    
+    
+    
+    
+  }
   
-  m <- IMU$mag %>% 
-    filter(individual_local_identifier == unique(ind$local_identifier)) %>% 
-    filter(dplyr::between(timestamp, min(ind$timestamp), max(ind$ timestamp))) %>% 
-    dplyr::select(c("tag_local_identifier", "timestamp", "eobs_start_timestamp", "sensor_type", "magnetic_fields_raw"))
-  
-  write.csv(m, paste0("/home/enourani/ownCloud/Work/Projects/HB_ontogeny_eobs/git_repository/R_files/Pritish_collab_IMU/IMU_snippets_Mar31/tag8986_", 
-                   unique(ind$snippet_id), "/mag.csv"))
-  #add the acc conversion here:
-  a <- acc_g %>% 
-    filter(individual_local_identifier == unique(ind$local_identifier)) %>% 
-    filter(dplyr::between(timestamp, min(ind$timestamp), max(ind$ timestamp))) %>% 
-    dplyr::select(c("tag_local_identifier", "timestamp", "eobs_start_timestamp", "sensor_type", "flight_status", "odbaAvg", "eobs_acceleration_g"))
-  
-  write.csv(a, paste0("/home/enourani/ownCloud/Work/Projects/HB_ontogeny_eobs/git_repository/R_files/Pritish_collab_IMU/IMU_snippets_Mar31/tag8986_", 
-                   unique(ind$snippet_id), "/acc.csv"))
-  
-  #add quat conversion here:
-  q <- quat %>% 
-    filter(individual_local_identifier == unique(ind$local_identifier)) %>% 
-    filter(dplyr::between(timestamp, min(ind$timestamp), max(ind$ timestamp))) %>% 
-    dplyr::select(c("tag_local_identifier", "timestamp", "eobs_start_timestamp", "sensor_type", "orientation_quaternions_raw"))
-  
-  write.csv(q, paste0("/home/enourani/ownCloud/Work/Projects/HB_ontogeny_eobs/git_repository/R_files/Pritish_collab_IMU/IMU_snippets_Mar31/tag8986_", 
-                   unique(ind$snippet_id), "/quat.csv"))
   
 })
-
-
-
