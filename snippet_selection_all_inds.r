@@ -44,53 +44,36 @@ snippet_ls <- lapply(seg_files, function(ind){
     group_by(behav) %>% 
     mutate(id_diff = ifelse(row_number() == 1, 0,
                             burstID - lag(burstID,1))) %>%
-    mutate(burst_group = cumsum(ifelse(id_diff == 1, 0,1)))
+    mutate(burst_group = cumsum(ifelse(id_diff == 1, 0,1))) %>% 
+    ungroup()
   
   #identify the longest burst groups
   long_groups <- burst_groups %>% 
     group_by(behav, burst_group) %>% 
     summarize(n = n()) %>% 
     arrange(desc(n)) %>% 
-    slice(1:4) #extract the 4 burst groups with the largest n of bursts
+    slice(1:4)  %>% #extract the 4 burst groups with the largest n of bursts
+    mutate(snippet_id = paste0(behav, "_", burst_group)) %>% 
+    ungroup()
   
   burstIDs <- burst_groups %>% 
-    inner_join(long_groups, by = c("behav", "burst_group")) #join with the burst_groups to get the burstID back
+    inner_join(long_groups, by = c("behav", "burst_group")) %>% #join with the burst_groups to get the burstID back
+    select(c("burstID", "snippet_id"))
   
   snps <- gps_migr %>% 
-    filter(burstID %in% burstIDs$burstID)
-  
-    
-    snp <- snippet %>% 
-    mutate(timelag = as.numeric(difftime(lead(timestamp, 1), timestamp, units = "secs"))) %>% 
-    mutate(burst_id = cumsum(ifelse(timelag == 1,0,1)))
-    
-    
-    #mutate(yday = yday(timestamp),
-    #       hr = hour(timestamp)) %>% 
-    #mutate(flight_bout_id = paste(yday,hr, flightClust_smooth3, sep = "_"))
-  
-  #extract the longest flight bouts per flight type
-  long_bouts <- gps_migr %>% 
-    add_count(flight_bout_id) %>% 
-    group_by(flight_bout_id) %>% 
-    slice(1) %>% 
-    group_by(flightClust_smooth3) %>% 
-    arrange(desc(n), .by_group = TRUE) %>%
-    slice(1:5)  %>% #extract the five longest bouts of each group 
-    pull(flight_bout_id)
+    inner_join(burstIDs, by = c("burstID"))
   
   #explore
-  gps_sf <- gps_migr %>% 
-    filter(flight_bout_id %in% long_bouts) %>% 
-    st_as_sf(coords = c("location_long", "location_lat"), crs = wgs) 
+  #snps_sf <- snps %>% 
+  #  st_as_sf(coords = c("location_long", "location_lat"), crs = wgs) 
     
-  #mapview(gps_sf, zcol = "flightClust_smooth3")
+  #mapview(snps_sf, zcol = "snippet_id")
   
-  gps_sf
+  snps
   
 })
 
-saveRDS(snippet_ls, file = "IMU_snippet_ls_all_inds.rds")
+saveRDS(snippet_ls, file = "IMU_snippet_ls_all_inds_per_burst.rds")
 
 ## STEP 2: download IMU  ----------------------------------------------------------------
 
@@ -113,44 +96,44 @@ saveRDS(IMU, file = "IMU_for_all_Apr5_23.rds") #this is all raw values. no conve
 ## STEP 3: Match the acc, mag and quat ----------------------------------------------------------------
 
 IMU <- readRDS("IMU_for_all_Apr5_23.rds")
-snippet_ls <- readRDS("IMU_snippet_ls_all_inds.rds")
+snippet_ls <- readRDS("IMU_snippet_ls_all_inds_per_burst.rds") #one list per individual. with all the snippets in it
                       
 
-lapply(snippet_ls, function(snippet){
+lapply(snippet_ls, function(ind){
   
-  snp <- snippet %>% 
+  snp <- ind %>% 
     mutate(timelag = as.numeric(difftime(lead(timestamp, 1), timestamp, units = "secs"))) %>% 
     mutate(burst_id = cumsum(ifelse(timelag == 1,0,1)))
 
   #create a directory for the snippet
   
   dir.create(paste0("/home/enourani/ownCloud/Work/Projects/HB_ontogeny_eobs/git_repository/R_files/Pritish_collab_IMU/IMU_snippets_Apr2/", 
-                     unique(snippet$snippet_id)))
+                     unique(ind$snippet_id)))
   
   m <- IMU$mag %>% 
-    filter(individual_local_identifier == unique(snippet$local_identifier)) %>% 
-    filter(dplyr::between(timestamp, min(snippet$timestamp), max(snippet$ timestamp))) %>% 
+    filter(individual_local_identifier == unique(ind$local_identifier)) %>% 
+    filter(dplyr::between(timestamp, min(ind$timestamp), max(ind$ timestamp))) %>% 
     dplyr::select(c("tag_local_identifier", "timestamp", "eobs_start_timestamp", "sensor_type", "magnetic_fields_raw"))
   
   write.csv(m, paste0("/home/enourani/ownCloud/Work/Projects/HB_ontogeny_eobs/git_repository/R_files/Pritish_collab_IMU/IMU_snippets_Mar31/tag8986_", 
-                   unique(snippet$snippet_id), "/mag.csv"))
+                   unique(ind$snippet_id), "/mag.csv"))
   #add the acc conversion here:
   a <- acc_g %>% 
-    filter(individual_local_identifier == unique(snippet$local_identifier)) %>% 
-    filter(dplyr::between(timestamp, min(snippet$timestamp), max(snippet$ timestamp))) %>% 
+    filter(individual_local_identifier == unique(ind$local_identifier)) %>% 
+    filter(dplyr::between(timestamp, min(ind$timestamp), max(ind$ timestamp))) %>% 
     dplyr::select(c("tag_local_identifier", "timestamp", "eobs_start_timestamp", "sensor_type", "flight_status", "odbaAvg", "eobs_acceleration_g"))
   
   write.csv(a, paste0("/home/enourani/ownCloud/Work/Projects/HB_ontogeny_eobs/git_repository/R_files/Pritish_collab_IMU/IMU_snippets_Mar31/tag8986_", 
-                   unique(snippet$snippet_id), "/acc.csv"))
+                   unique(ind$snippet_id), "/acc.csv"))
   
   #add quat conversion here:
   q <- quat %>% 
-    filter(individual_local_identifier == unique(snippet$local_identifier)) %>% 
-    filter(dplyr::between(timestamp, min(snippet$timestamp), max(snippet$ timestamp))) %>% 
+    filter(individual_local_identifier == unique(ind$local_identifier)) %>% 
+    filter(dplyr::between(timestamp, min(ind$timestamp), max(ind$ timestamp))) %>% 
     dplyr::select(c("tag_local_identifier", "timestamp", "eobs_start_timestamp", "sensor_type", "orientation_quaternions_raw"))
   
   write.csv(q, paste0("/home/enourani/ownCloud/Work/Projects/HB_ontogeny_eobs/git_repository/R_files/Pritish_collab_IMU/IMU_snippets_Mar31/tag8986_", 
-                   unique(snippet$snippet_id), "/quat.csv"))
+                   unique(ind$snippet_id), "/quat.csv"))
   
 })
 
