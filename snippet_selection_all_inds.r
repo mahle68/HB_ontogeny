@@ -32,11 +32,42 @@ snippet_ls <- lapply(seg_files, function(ind){
   
   #filter out non-migratory flight
   gps_migr <- gps %>% 
-    filter(between(location_lat,5,60) & #filter out breeding and wintering season movements
-             flightClust_smooth3 != "linear soaring") %>%  #filter out linear soaring for now. some thermal soaring got in there. i need to modify martina's code for this sp
-    mutate(yday = yday(timestamp),
-           hr = hour(timestamp)) %>% 
-    mutate(flight_bout_id = paste(yday,hr, flightClust_smooth3, sep = "_"))
+    filter(between(location_lat,5,60))  #& #filter out breeding and wintering season movements
+             #flightClust_smooth3 != "linear soaring") %>%  #filter out linear soaring for now. some thermal soaring got in there. i need to modify martina's code for this sp
+  
+  #find bursts with one behavior #group consecutive bursts with the same behavior together. find a group with the largest n of burstIDs. this helps find a group with the the same behavior in consecutive bursts. easier to find many IMU recordings for the period 
+  burst_groups <- gps_migr %>% 
+    group_by(burstID) %>% 
+    summarize(n_behavs = n_distinct(flightClust_smooth3),
+              behav = head(flightClust_smooth3,1)) %>% #this only makes sense for groups with one unique behavior! 
+    filter(n_behavs == 1) %>% 
+    group_by(behav) %>% 
+    mutate(id_diff = ifelse(row_number() == 1, 0,
+                            burstID - lag(burstID,1))) %>%
+    mutate(burst_group = cumsum(ifelse(id_diff == 1, 0,1)))
+  
+  #identify the longest burst groups
+  long_groups <- burst_groups %>% 
+    group_by(behav, burst_group) %>% 
+    summarize(n = n()) %>% 
+    arrange(desc(n)) %>% 
+    slice(1:4) #extract the 4 burst groups with the largest n of bursts
+  
+  burstIDs <- burst_groups %>% 
+    inner_join(long_groups, by = c("behav", "burst_group")) #join with the burst_groups to get the burstID back
+  
+  snps <- gps_migr %>% 
+    filter(burstID %in% burstIDs$burstID)
+  
+    
+    snp <- snippet %>% 
+    mutate(timelag = as.numeric(difftime(lead(timestamp, 1), timestamp, units = "secs"))) %>% 
+    mutate(burst_id = cumsum(ifelse(timelag == 1,0,1)))
+    
+    
+    #mutate(yday = yday(timestamp),
+    #       hr = hour(timestamp)) %>% 
+    #mutate(flight_bout_id = paste(yday,hr, flightClust_smooth3, sep = "_"))
   
   #extract the longest flight bouts per flight type
   long_bouts <- gps_migr %>% 
@@ -88,11 +119,9 @@ snippet_ls <- readRDS("IMU_snippet_ls_all_inds.rds")
 lapply(snippet_ls, function(snippet){
   
   snp <- snippet %>% 
-    mutate(snippet_ID = 1,
-           timelag = as.numeric(difftime(lead(timestamp, 1), timestamp, units = "secs"))) %>% 
+    mutate(timelag = as.numeric(difftime(lead(timestamp, 1), timestamp, units = "secs"))) %>% 
     mutate(burst_id = cumsum(ifelse(timelag == 1,0,1)))
-    mutate(snippet_ID = ifelse(as.numeric(difftime(lead(timestamp, 1), timestamp, units = "secs")) == 1, lag(snippet_ID,1), (lag(snippet_ID,1)+1)))
-  
+
   #create a directory for the snippet
   
   dir.create(paste0("/home/enourani/ownCloud/Work/Projects/HB_ontogeny_eobs/git_repository/R_files/Pritish_collab_IMU/IMU_snippets_Apr2/", 
