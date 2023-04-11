@@ -41,6 +41,7 @@ mag <- getMovebankNonLocationData(EHB_FN_id, sensorID = 77740402, animalName = "
 
 quat <- getMovebankNonLocationData(EHB_FN_id, sensorID = 819073350, animalName = "D320_475", login = creds, removeDuplicatedTimestamps = T)
 
+write.csv(mag, file = "HB_sample_mag.csv")
 
 ## STEP 2: select snippets ----------------------------------------------------------------
 
@@ -86,7 +87,7 @@ snippet_ls <- list(
     mutate(snippet_id = "gliding3")
 )
 
-#mapview(gliding1, zcol = "flightClust_smooth3")
+mapview(circling3, zcol = "flightClust_smooth3")
 
 ## STEP 3: Match the acc, mag and quat ----------------------------------------------------------------
 

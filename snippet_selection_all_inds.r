@@ -116,7 +116,9 @@ lapply(snippet_ls, function(ind){
   for(i in unique(ind$snippet_id)){
     
     snp <- ind %>% 
-      filter(snippet_id == i)
+      filter(snippet_id == i) %>% 
+      as.data.frame() %>% 
+      dplyr::select(c("tag_local_identifier", "local_identifier", "timestamp", "location_long", "location_lat",  "height_above_ellipsoid", "burstID", "vert.speed", "turn.angle", "gr.speed", "snippet_id", "flightClust_smooth3"))
     
     #visualize:
     # snp_sf <- snp %>% 
@@ -184,21 +186,22 @@ lapply(snippet_ls, function(ind){
         raw_data <- unlist(strsplit(burst %>% dplyr::select("orientation_quaternions_raw") %>%  pull(), " ")) %>% 
           as.numeric()
         
-        #extract values for each axis
+        #extract values for each axis. 
         quat_df <- data.frame(w_raw = raw_data[seq(1,length(raw_data),4)], #create one long character string from the 10 values
                               x_raw = raw_data[seq(2,length(raw_data),4)], 
                               y_raw = raw_data[seq(3,length(raw_data),4)],
                               z_raw = raw_data[seq(4,length(raw_data),4)]) %>% 
-          mutate(r = sqrt(x_raw^2 + y_raw^2 + z_raw^2), #these lines are from the eobs manual p. 110
+          mutate(r = sqrt(x_raw^2 + y_raw^2 + z_raw^2), #these lines are from the eobs manual p. 110. according to Pritish: skip these except for the division of w_raw by 32768. ALso, divide x, y, and z by 128
                  w = w_raw/32768) %>% 
           mutate(s = ifelse(r != 0, sqrt(1-w^2)/r, 0)) %>% 
-          mutate(y = s*y_raw,
+          mutate(x = s*x_raw,
+                 y = s*y_raw,
                  z = s*z_raw)
         
         
         burst <- burst %>% 
           mutate(quat_w = str_c(as.character(quat_df$w), collapse = " "),
-                 quat_x = str_c(as.character(quat_df$x_raw), collapse = " "),
+                 quat_x = str_c(as.character(quat_df$x), collapse = " "),
                  quat_y = str_c(as.character(quat_df$y), collapse = " "),
                  quat_z = str_c(as.character(quat_df$z), collapse = " "))
         
