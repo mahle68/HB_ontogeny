@@ -68,6 +68,8 @@ data <- readRDS("/media/enourani/Ellham's HDD/Elham_EHB/all_GPS_Apr4.rds") %>%
   ungroup() %>% 
   arrange(tag_local_identifier, timestamp)
 
+saveRDS(data, "/media/enourani/Ellham's HDD/Elham_EHB/hourly_gps.rds")
+
 #open the continent boundaries layer
 world <- st_read("/home/enourani/ownCloud/Work/GIS_files/continent_shapefile/World_Continents.shp") %>% 
   st_crop(xmin = -17, xmax = 43, ymin = -35.6, ymax = 67) %>%
