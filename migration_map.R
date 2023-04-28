@@ -12,7 +12,7 @@ library(rgdal)
 library(mapview)
 library(plotKML)
 
-wgs <- CRS("+proj=longlat +datum=WGS84 +no_defs")
+wgs <- st_crs("+proj=longlat +datum=WGS84 +no_defs")
 
 #### make a gif #####
 #download data from Movebank
@@ -68,36 +68,30 @@ data <- readRDS("/media/enourani/Ellham's HDD/Elham_EHB/all_GPS_Apr4.rds") %>%
   ungroup() %>% 
   arrange(tag_local_identifier, timestamp)
 
-#world <- st_read("/home/enourani/ownCloud/Work/GIS_files/continent_shapefile/World_Continents.shp") %>% 
-#  st_crop(xmin = -15, xmax = 42, ymin = -35.6, ymax = 66) %>%
-#  st_union()
+#open the continent boundaries layer
+world <- st_read("/home/enourani/ownCloud/Work/GIS_files/continent_shapefile/World_Continents.shp") %>% 
+  st_crop(xmin = -17, xmax = 43, ymin = -35.6, ymax = 67) %>%
+  st_union()
 
+#create a rectangle to be the oceans
+Polycoords <- data.frame(long = c(-17,43),
+                         lat = c(-35.6,67))
 
-#download natural earth layer from here: https://www.naturalearthdata.com/downloads/10m-raster-data/10m-cross-blend-hypso/
-#code below follows this tutorial loosely: https://downwithtime.wordpress.com/2013/12/04/naturalearthdata-and-r-in-ggplot2/
-#it uses the raster package. eventually rewrite for terra
+pol <- st_polygon(
+  list(
+    cbind(
+      Polycoords$lon[c(1,2,2,1,1)], 
+      Polycoords$lat[c(1,1,2,2,1)])
+  )
+) %>% 
+  st_sfc(crs = wgs)
 
-background <- stack("/home/enourani/ownCloud/Work/GIS_files/natural_earth/HYP_HR_SR_OB_DR.tif") %>% 
-  crop(extent(-16, 43, -35.6, 67)) # crop to the extend of interest
-
-#convert into a dataframe
-rast.table <- data.frame(xyFromCell(background, 1:ncell(background)),
-                         getValues(background/255))
-#add the rgb values to the table
-rast.table$rgb <- with(rast.table, rgb(HYP_HR_SR_OB_DR_1,
-                                       HYP_HR_SR_OB_DR_2,
-                                       HYP_HR_SR_OB_DR_3,
-                                       1))
-
-png("/home/enourani/ownCloud/Work/Projects/seabirds_and_storms/paper_prep/figs/wind_field_stills_Dec22.png"), 
-    height = 5, width = 7, units = "in", res = 300)
-print(final_plot)
-dev.off()
 
 #plot
+png("/home/enourani/ownCloud/Work/Projects/HB_ontogeny_eobs/git_repository/figs/migration_map.png", res = 300, units = "in", height = 10, width = 8)
 ggplot() +
-  geom_tile(data = rast.table, aes(x = x, y = y, fill = rgb)) +
-#geom_sf(data = world, fill = "grey20", col = "grey20") +
-geom_path(data = data, aes(x = location_long, y = location_lat, group = tag_local_identifier), linewidth = .5, lineend = "round", color = "black") +
+  geom_sf(data = pol, fill = "powderblue", col = "powderblue") +
+  geom_sf(data = world, fill = "white", col = "white") +
+  geom_path(data = data, aes(x = location_long, y = location_lat, group = tag_local_identifier), linewidth = .5, lineend = "round", color = "#df4035") +
   theme_void()
-  
+dev.off()
