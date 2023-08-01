@@ -53,7 +53,7 @@ GPStoACC <- function(GPSdata,ACCdata,
                      ACCtimeCol="timestamp", GPStimeCol="timestamp"){
   require(data.table)
   if(is.null(gpsEventCol)){gpsEventCol <- grep("event_id|event.id", names(GPSdata), value=T)}
-  if(all(class(ACCdata[,ACCtimeCol]) %in% c("POSIXct","POSIXt","POSIXlt")==F) | 
+  if(all(class(ACCdat[,ACCtimeCol]) %in% c("POSIXct","POSIXt","POSIXlt")==F) | 
      all(class(GPSdata[,GPStimeCol]) %in% c("POSIXct","POSIXt","POSIXlt")==F)){
     stop("ACC or GPS time column is not in POSIXct format.")}
   #create the empty columns that I want to fill in during the loop

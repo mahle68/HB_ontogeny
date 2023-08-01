@@ -3,18 +3,32 @@
 #Elham Nourani PhD.
 #Mar 16. 2023. Konstanz, DE.a
 
-library(move)
+library(move2)
 library(tidyverse)
 library(lubridate)
 library(mapview)
 library(parallel)
-library(plyr)
+#library(plyr)
 library(data.table)
-library(doParallel)
-detectCores()
-doParallel::registerDoParallel(detectCores()-2) 
+#library(doParallel)
+
 #dir.create("prepped")
 #library(data.table) #for Martina's rbindlist code
+
+#update Jul.19.2023
+#using move2 to download data for "D320_475" and "D324_512"
+creds <- movebank_store_credentials(username = "mahle68", rstudioapi::askForPassword())
+EHB_FN_id <- movebank_get_study_id("European Honey Buzzard_Finland", creds) %>%  as.numeric()
+
+gps <- movebank_retrieve(study_id = EHB_FN_id, individual_local_identifier = c("D324_512", "D320_475"),
+                         entity_type = "event", sensor_type_id= "gps", attributes = "all", 
+                         timestamp_end = "20221115000000000") 
+
+saveRDS(gps, "R_files/gps_raw_2inds.rds")
+
+######
+detectCores()
+doParallel::registerDoParallel(detectCores()-2) 
 #download gps and IMU from movebank. focus on one individual: D324-512
 #setwd("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/git_repository/R_files/")
 setwd("/home/enourani/ownCloud/Work/Projects/HB_ontogeny_eobs/git_repository/R_files/")
