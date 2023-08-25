@@ -2,8 +2,8 @@
 #follows Martina's code: https://github.com/kamransafi/GoldenEagles/blob/main/WP3_Soaring_Ontogeny/MS1_soaring_skills/script1_GPSsegmentation_goldenEagles_newMarch2023.R
 #Elham Nourani PhD.
 #Mar 16. 2023. Konstanz, DE.a
-
-library(move2)
+ 
+#library(move2)
 library(tidyverse)
 library(lubridate)
 library(mapview)
