@@ -1,4 +1,5 @@
-#This code downloads honey buzzard ACC data, transforms the units, and calculates ACC related features.
+#This code downloads honey buzzard IMU data, transforms the units, and calculates ACC related features. Then it finds the neares GPS point to the IMU recordings
+#the focus is on two individuals at the exploration phase: 
 #Elham Nourani PhD.
 #Feb 15. 2023. Konstanz, DE.
 
@@ -11,11 +12,9 @@ library(parallel)
 library(sf)
 
 wgs <- st_crs("+proj=longlat +datum=WGS84 +no_defs")
-setwd("/home/enourani/ownCloud/Work/Projects/HB_ontogeny_eobs/git_repository/R_files/")
-setwd("/home/mahle68/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/git_repository/R_files/")
 
-#setwd("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/git_repository/R_files/")
-source("/home/mahle68/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/git_repository/HB_ontogeny/ACCtoGPS_ftns.R") #matching gps and acc or vice versa
+setwd("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/R_files/")
+
 
 # focus on two individuals:
 creds <- movebankLogin(username = "mahle68", rstudioapi::askForPassword())
@@ -132,4 +131,3 @@ lapply(acc_w_gps, function(x){
             file = paste0("/home/mahle68/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/git_repository/R_files/Pritish_collab_IMU/matched_gps_acc/",
                           x2$individual_local_identifier[1], "_acc_w_gps.csv"))
 })
-#match acc to gps based on closest timestamp
