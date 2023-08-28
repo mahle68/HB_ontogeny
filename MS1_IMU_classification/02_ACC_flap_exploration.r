@@ -10,7 +10,7 @@ library(mapview)
 wgs <- st_crs("+proj=longlat +datum=WGS84 +no_defs")
 
 #open files for two sample individuals
-two_inds <- list.files("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/git_repository/R_files/Pritish_collab_IMU/matched_gps_acc",
+two_inds <- list.files("/home/mahle68/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/R_files/Pritish_collab_IMU/matched_gps_acc",
                        pattern = "flap.csv", full.names = T) %>% 
   map(read.csv) %>% 
   bind_rows() %>% 
@@ -19,7 +19,7 @@ two_inds <- list.files("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gw
   mutate(flapping = as.factor(flap_indicator))
 
 #compare to the high-res gps segmentation
-gps_seg <- str_subset(list.files("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/git_repository/R_files/GPS_seg_Aug23/classified_data", full.names = T),
+gps_seg <- str_subset(list.files("/home/mahle68/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/R_files/GPS_seg_Aug23/classified_data", full.names = T),
            pattern = paste0(unique(two_inds$individual_local_identifier), collapse = '|')) %>%  #add the OR sign in between the two names!
   map(readRDS) %>% 
   bind_rows()

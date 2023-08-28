@@ -15,13 +15,18 @@ wgs <- st_crs("+proj=longlat +datum=WGS84 +no_defs")
 
 setwd("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/R_files/")
 
+#download movebank data
 
-# focus on two individuals:
-creds <- movebankLogin(username = "mahle68", rstudioapi::askForPassword())
-EHB_FN_id <- getMovebankID("European Honey Buzzard_Finland", creds)
+inds <- c("D320_475", "D324_512")
 
-#check for sensors available. Acc = 2365683; Mag = 77740402; Orientation: 819073350
-getMovebankSensors(EHB_FN_id,login = creds)
+creds <- movebank_store_credentials(username = "mahle68", rstudioapi::askForPassword())
+HB_id <- movebank_get_study_id("European Honey Buzzard_Finland")
+
+movebank_retrieve(study_id = HB_id, entity_type= "tag_type")
+
+mag <- movebank_retrieve(study_id = "European Honey Buzzard_Finland", sensor_type_id = c("magnetometer", "orientation"), 
+                         individual_local_identifier = inds,  entity_type = "event", 
+                         timestamp_start = as.POSIXct("2022-09-01 00:00:00"), timestamp_end = as.POSIXct("2022-10-30 00:00:00"))
 
 # STEP 1: download data and convert units to g -------------------------------------------------
 #download raw acc values
@@ -131,3 +136,5 @@ lapply(acc_w_gps, function(x){
             file = paste0("/home/mahle68/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/git_repository/R_files/Pritish_collab_IMU/matched_gps_acc/",
                           x2$individual_local_identifier[1], "_acc_w_gps.csv"))
 })
+
+
