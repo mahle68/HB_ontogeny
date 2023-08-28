@@ -22,10 +22,10 @@ inds <- c("D320_475", "D324_512")
 creds <- movebank_store_credentials(username = "mahle68", rstudioapi::askForPassword())
 HB_id <- movebank_get_study_id("European Honey Buzzard_Finland")
 
-movebank_retrieve(study_id = HB_id, entity_type= "tag_type")
+movebank_retrieve(study_id = 2201086728, entity_type= "tag_type")
 
-mag <- movebank_retrieve(study_id = "European Honey Buzzard_Finland", sensor_type_id = c("magnetometer", "orientation"), 
-                         individual_local_identifier = inds,  entity_type = "event", 
+mag <- movebank_retrieve(study_id = 2201086728, sensor_type_id = c("magnetometer", "orientation"), 
+                         individual_local_identifier = inds,  entity_type = "event",  attributes = "all", 
                          timestamp_start = as.POSIXct("2022-09-01 00:00:00"), timestamp_end = as.POSIXct("2022-10-30 00:00:00"))
 
 # STEP 1: download data and convert units to g -------------------------------------------------
