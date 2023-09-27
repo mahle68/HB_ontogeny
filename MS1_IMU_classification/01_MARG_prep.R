@@ -15,7 +15,7 @@ wgs <- st_crs("+proj=longlat +datum=WGS84 +no_defs")
 
 setwd("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/R_files/")
 
-#download movebank data
+#STEP 1: download data -------------------------------------------------
 
 inds <- c("D320_475", "D324_512")
 
@@ -24,13 +24,75 @@ HB_id <- movebank_get_study_id("European Honey Buzzard_Finland")
 
 movebank_retrieve(study_id = 2201086728, entity_type= "tag_type")
 
-mag <- movebank_retrieve(study_id = 2201086728, sensor_type_id = c("magnetometer", "orientation"), 
+mag <- movebank_retrieve(study_id = 2201086728, sensor_type_id = "magnetometer", 
                          individual_local_identifier = inds,  entity_type = "event",  attributes = "all", 
                          timestamp_start = as.POSIXct("2022-09-01 00:00:00"), timestamp_end = as.POSIXct("2022-10-30 00:00:00"))
 
-# STEP 1: download data and convert units to g -------------------------------------------------
-#download raw acc values
-acc <- getMovebankNonLocationData(EHB_FN_id, sensorID = 2365683, login = creds, removeDuplicatedTimestamps = T)
+quat <- movebank_retrieve(study_id = 2201086728, sensor_type_id = "orientation", 
+                         individual_local_identifier = inds,  entity_type = "event",  attributes = "all", 
+                         timestamp_start = as.POSIXct("2022-09-01 00:00:00"), timestamp_end = as.POSIXct("2022-10-30 00:00:00"))
+
+acc <- movebank_retrieve(study_id = 2201086728, sensor_type_id = "acceleration", 
+                         individual_local_identifier = inds,  entity_type = "event",  attributes = "all", 
+                         timestamp_start = as.POSIXct("2022-09-01 00:00:00"), timestamp_end = as.POSIXct("2022-10-30 00:00:00"))
+
+
+#put the quat and mag together
+or <- mag %>% 
+  full_join(quat, by = c("individual_local_identifier", "tag_local_identifier", "study_id", "tag_id", "individual_taxon_canonical_name", "timestamp",
+                         "eobs_start_timestamp", "eobs_key_bin_checksum", "data_decoding_software", "individual_id", "import_marked_outlier", "visible")) %>% 
+  as.data.frame()
+
+#because the mag/quaternion are stored differently than acc (n of rows is different), match with gps separately
+#STEP 2: find nearest GPS fix to each quat/mag burst -------------------------------------------------
+
+gps_ls <- readRDS("gps_raw_2inds.rds") %>% 
+  group_by(individual_local_identifier) %>% 
+  group_split() %>% 
+  as.list()
+names(gps_ls) <- c("D320_475", "D324_512")
+
+or_ls <- split(or, or$individual_local_identifier) #make sure this is a list of dataframes, not tibbles
+
+# Define a function to find the closest GPS information and associate it with orientation data
+find_closest_gps <- function(or_data, gps_data, time_tolerance = 10 * 60) {
+  map_df(1:nrow(or_data), function(h) {
+    or_row_time <- or_data[h, "timestamp"]
+    gps_sub <- gps_data %>%
+      filter(between(timestamp, or_row_time - time_tolerance, or_row_time + time_tolerance))
+    
+    if (nrow(gps_sub) >= 1) {
+      time_diff <- abs(difftime(gps_sub$timestamp, or_row_time, units = "secs"))
+      min_diff <- which.min(time_diff)
+      or_data[h, c("timestamp_closest_gps", "location_long_closest_gps", "location_lat_closest_gps", "height_above_ellipsoid_closest_gps")] <- gps_sub[min_diff, c("timestamp", "location_long", "location_lat", "height_above_ellipsoid")]
+    } else {
+      or_data[h, c("timestamp_closest_gps", "location_long_closest_gps", "location_lat_closest_gps", "height_above_ellipsoid_closest_gps")] <- NA
+    }
+    return(or_data[h, ])
+  })
+}
+
+# Create a list of data frames with or data and associated GPS information
+(b <- Sys.time())
+or_w_gps <- map2(or_ls, gps_ls, ~ find_closest_gps(or_data = .x, gps_data = .y))
+Sys.time() - b # 25 minutes
+
+saveRDS(or_w_gps, "GPS_matched_orientation.rds")
+# Now you have or_w_gps, which is a list of data frames, where each data frame contains or data with associated GPS information.
+
+#add a column comparing or and gps timestamps. then save one file per individual. also limit to migratory season!! 1.09 - 30.10
+lapply(or_w_gps, function(x){
+  x2 <- x %>% 
+    filter(between(timestamp, as.POSIXct("2022-09-01 00:00:00", tz = "UTC"), as.POSIXct("2022-10-31 00:00:00", tz = "UTC"))) %>% 
+    mutate(imu_gps_timediff_sec = if_else(is.na(timestamp_closest_gps), NA, difftime(timestamp, timestamp_closest_gps, units = "secs") %>%  as.numeric()))
+  
+  write.csv(x2, 
+            file = paste0("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/R_files/Pritish_collab_IMU/matched_gps_orientation/",
+                          x2$individual_local_identifier[1], "_quat_mag_w_gps.csv"))
+})
+
+
+# STEP 3: convert acc units to g -------------------------------------------------
 
 #write a ftn for g conversion
 g_transform <- function(x) {
@@ -58,7 +120,7 @@ saveRDS(acc_g, file = "/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwd
 
 acc_g <- readRDS("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/git_repository/R_files/Pritish_collab_IMU/acc_2inds.rds")
 
-# STEP 2: estimate metrics -------------------------------------------------
+# STEP 4: estimate metrics -------------------------------------------------
 acc_g <- readRDS("/home/enourani/ownCloud/Work/Projects/HB_ontogeny_eobs/git_repository/R_files/Pritish_collab_IMU/acc_2inds.rds") %>% 
   rename(accelerationTransformed = eobs_acceleration_g)
 
@@ -82,7 +144,7 @@ lapply(split(acc_g, acc_g$individual_local_identifier), function(x){
   saveRDS(acc_metrics, file = paste0("Pritish_collab_IMU/animal_",unique(acc_metrics$tag_local_identifier),"_classifiedAcc.rds"))
 })
 
-#STEP 2: find nearest GPS fix to each ACC burst -------------------------------------------------
+#STEP 5: find nearest GPS fix to each ACC burst -------------------------------------------------
 
 # List all ACC files
 acc_ls <- lapply(list.files("Pritish_collab_IMU", pattern = "animal_", full.names = TRUE), readRDS)

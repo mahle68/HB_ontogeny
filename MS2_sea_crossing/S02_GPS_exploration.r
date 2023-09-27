@@ -52,7 +52,7 @@ saveRDS(sea_ann, file = "/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.g
 
 # STEP 3: Data exploration ---------------------------------------------------------------------------------------------------------------------------------------------------
 
-sea_sf <- readRDS("/home/mahle68/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/git_repository/R_files/sea_gps_seg_ann.rds")
+sea_sf <- readRDS("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/R_files/sea_gps_seg_ann.rds")
   
   ggplot(sea_sf, aes(x = local_identifier, fill = flight_clust_sm3)) +
   geom_bar()
@@ -68,6 +68,12 @@ ggplot(sea_ann, aes(x = flight_clust_sm3, y = delta_t)) +
 ggplot(sea_ann, aes(x = flight_clust_sm3, y = wind_speed_10m)) +
   geom_boxplot() +
   theme_linedraw()
+
+#proportion of each flight type
+sea_sf %>% 
+  group_by(flight_clust_sm3) %>% 
+  reframe(ratio = n()/nrow(sea_sf))
+
 
 # STEP 4: modeling soaring OR flight type as a function of env variables  -----------------------------------------------------------------------------------------------------------------
 
