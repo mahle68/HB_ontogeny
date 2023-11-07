@@ -10,7 +10,7 @@ library(mapview)
 wgs <- st_crs("+proj=longlat +datum=WGS84 +no_defs")
 
 #open files for two sample individuals
-two_inds <- list.files("/home/mahle68/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/R_files/Pritish_collab_IMU/matched_gps_acc",
+two_inds <- list.files("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/R_files/Pritish_collab_IMU/matched_gps_acc",
                        pattern = "flap.csv", full.names = T) %>% 
   map(read.csv) %>% 
   bind_rows() %>% 

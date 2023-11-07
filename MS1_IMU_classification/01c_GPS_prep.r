@@ -1,8 +1,6 @@
-#This code filters honey buzzard tracks for sea-crossing sections. then segment flight types.
-#follows Martina's code for segmentation: https://github.com/kamransafi/GoldenEagles/blob/main/WP3_Soaring_Ontogeny/MS1_soaring_skills/script1_GPSsegmentation_goldenEagles_newMarch2023.R
-# I have renamed turn_angle_smooth (from martina's code) to turn_angle_cum, because it is the cumulative sum and not simply a smoothed value.
+#This code segments flight types for the European honey buzzards. based on my code: A01_GPS_prep.r
 #Elham Nourani PhD.
-#Aug 2. 2023. Canberra, AU
+#Nov 6, 2023. Konstanz, DE
 
 library(tidyverse)
 library(lubridate)
@@ -11,72 +9,32 @@ library(mapview)
 library(terra)
 library(lwgeom)
 library(rgl)
+library(parallel)
 library(viridis)
 
-#options(rgl.printRglwidget = TRUE)
-
 wgs <- st_crs("+proj=longlat +datum=WGS84 +no_defs")
-setwd("/home/mahle68/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/git_repository/R_files/")
+setwd("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/")
 
-# STEP 1: open all GPS data and filter for latitudes #####
-gps <- readRDS("/media/enourani/Ellham's HDD/Elham_EHB/all_GPS_Apr4.rds") %>%
-  as.data.frame() %>%
-  filter(between(location_lat,53.5,61.05) | between(location_lat, 28.9,46.49))
+#STEP 1: download gps data for all individuals (whole study) -----------------------------
 
-#open coastline layer
-coastlines <- st_read("/home/enourani/ownCloud/Work/GIS_files/continent_shapefile/World_Continents.shp") %>%
-  st_crop(xmin = -17, xmax = 43, ymin = -35.6, ymax = 67) %>%
-  st_union()
-  #poly2nb(st_make_valid(shp))
+creds <- movebank_store_credentials(username = "mahle68", rstudioapi::askForPassword())
+HB_id <- movebank_get_study_id("European Honey Buzzard_Finland")
 
-gps_sf <- gps %>%
-  st_as_sf(coords = c("location_long.1", "location_lat.1"), crs = wgs) 
+movebank_retrieve(study_id = 2201086728, entity_type= "tag_type")
 
-dd <- gps_sf  %>%
-  st_difference(coastlines)
+gps <- movebank_retrieve(study_id = 2201086728, sensor_type_id = "gps",   #download data for all individuals 
+                         entity_type = "event",  attributes = "all")
 
-saveRDS(dd, file = "/home/mahle68/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/git_repository/R_files/HB_sea_tracks.rds")
+saveRDS(gps, file = "data/all_gps_nov_6_23.rds")
 
-# STEP 2: calculate flight altitude #####
+#STEP 2: segmentation based on 1 Hz GPS -----------------------------
 
-geo <- rast("/home/mahle68/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/GE_ontogeny_of_soaring/R_files/EGM96_us_nga_egm96_15.tif")
-
-sea <- readRDS("/home/mahle68/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/git_repository/R_files/HB_sea_tracks.rds") %>% 
-  #st_drop_geometry() %>% 
-  select(local_identifier, location_lat, location_long, eobs_start_timestamp, timestamp, eobs_battery_voltage, eobs_horizontal_accuracy_estimate, ground_speed, heading, height_above_ellipsoid,
-         tag_local_identifier, sex, taxon_canonical_name, timestamp_start, timestamp_end) %>% 
-  #st_transform(crs = crs(geo)) %>% 
-  extract(x = geo, y = ., method = "simple", bind = T) %>% 
-  st_as_sf() %>% 
-  mutate(height_msl = height_above_ellipsoid - EGM96_us_nga_egm96_15)
-
-
-#look at one sample
-one <- sea %>% 
-  filter(local_identifier == "D324_512")
-
-# STEP 3: prepare for annotation #####
-#there are NAs in the heigh columns. create a row id column. then only use the complete columns to annotate. row id will help with merging afterwards
-sea_df <- sea %>% 
-  as.data.frame() %>% 
-  mutate(row_id = row_number())
-
-saveRDS(sea_df, file = "/home/mahle68/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/git_repository/R_files/HB_sea_tracks_df.rds")
-  
-
-ann_df <- sea_df %>% 
-  mutate(timestamp = paste(as.character(timestamp),"000",sep = ".")) %>% 
-  select(location_lat, location_long, row_id, timestamp)
-
-colnames(ann_df)[c(2,1)] <- c("location-long","location-lat") 
-
-write.csv(ann_df, file = "/home/mahle68/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/git_repository/R_files/HB_sea_to_annotate.csv", row.names = F)
-
-# STEP 4: flight segmentation #####
-
-sea_ls <- readRDS("HB_sea_tracks_df.rds") %>% 
+#convert to sf object
+inds_ls <- gps %>% 
+  drop_na("location_long") %>% 
   st_as_sf(coords = c("location_long", "location_lat"), crs = wgs) %>% 
-  group_split(local_identifier)
+  group_split(individual_local_identifier)
+
 
 #define variables for segmentation
 min_res_tl <- 2 # 1 to max 2 sec time lag
@@ -94,10 +52,22 @@ ta_per_sec_shallow <- circl_deg_sh/((2*sw_th)+1)
 
 #calculate cumulative turning angles for all individuals, to then find good thresholds for separating shallow soaring and thermal soaring!
 
-(b <- Sys.time())
-lapply(sea_ls, function(ind){ #test with ind <- sea_ls[[10]] ... doesn't have too many rows
+
+mycl <- makeCluster(detectCores()-10, export = list("inds_ls")) #only two CPUs because of RAM usage
+
+#clusterExport(mycl, c("mv", "hr", "tolerance", "n_alt","wgs", "meters_proj", "NCEP.loxodrome.na")) #define the variable that will be used within the ParLapply call
+
+clusterEvalQ(mycl, { #the packages that will be used within the ParLapply call
+  library(sf)
+  library(tidyverse)
+})
+
+
+(st_t <- Sys.time())
+
+lapply(inds_ls, function(ind){
   
-  # STEP 1: calculate track variables -------------------------------------------------------------------------
+  #calculate track variables
   
   #everything is calculated from one point compared to its previous
   ind <- ind %>% 
@@ -138,7 +108,7 @@ lapply(sea_ls, function(ind){ #test with ind <- sea_ls[[10]] ... doesn't have to
   
   if(nrow(ind) > 0){
     
-    #split each individual by burst_id
+    #split the individual by burst_id
     burst_ls_corr <- ind %>% 
       group_split(burst_id)  
     
@@ -190,7 +160,7 @@ lapply(sea_ls, function(ind){ #test with ind <- sea_ls[[10]] ... doesn't have to
     
     #visual check
     #mapview(df_hr, zcol = "flight_clust")
-
+    
     # Add some steps of smoothing based on duration of behaviors:
     burst_ls_class <- df_hr %>% 
       group_split(burst_id)
@@ -290,7 +260,7 @@ lapply(sea_ls, function(ind){ #test with ind <- sea_ls[[10]] ... doesn't have to
       ##--------------------- SMOOTHING level 3: based on turning angle of circular soaring bouts (Martina's code did this based on circling duration)
       #calculate sum of turn_angles. If they are classified as circular soaring, but are straighter than circl_deg/((2*sw_th)+1) or circl_deg_sh/((2*sw_th)+1), assign linear soaring
       #alternatively, if the assignment is linear soaring, but the rate of rotation is more than circl_deg/((2*sw_th)+1) or circl_deg_sh/((2*sw_th)+1), assign the appropriate soaring class
-
+      
       behav_ta <- b %>% 
         group_by(flight_seg_id_sm2, flight_clust_sm2) %>% 
         reframe(duration = sum(time_lag_sec),
@@ -299,7 +269,7 @@ lapply(sea_ls, function(ind){ #test with ind <- sea_ls[[10]] ... doesn't have to
                                           if_else(flight_clust_sm2 == "circular_soaring" & (turn_angle_sum/duration) < ta_per_sec_shallow, "linear_soaring", 
                                                   if_else(flight_clust_sm2 == "linear_soaring" & (turn_angle_sum/duration) > ta_per_sec_circl, "circular_soaring",
                                                           if_else(flight_clust_sm2 == "linear_soaring" & (turn_angle_sum/duration) > ta_per_sec_shallow, "shallow_circular_soaring",
-                                                          flight_clust_sm2)))))
+                                                                  flight_clust_sm2)))))
       
       #merge the new clusters with the original data
       b <- b %>% 
@@ -314,7 +284,7 @@ lapply(sea_ls, function(ind){ #test with ind <- sea_ls[[10]] ... doesn't have to
       
       # Assign unique ID to the behavioral segment based on the final smoothest classification
       b <- b %>% 
-        mutate(track_flight_seg_id = paste(unique(b$local_identifier), "burst", unique(b$burst_id), "seg", b$flight_seg_id_sm3, sep = "_")) 
+        mutate(track_flight_seg_id = paste(unique(b$individual_local_identifier), "burst", unique(b$burst_id), "seg", b$flight_seg_id_sm3, sep = "_")) 
       
       #return each classified and smoothed burst to a list
       return(b) 
@@ -322,22 +292,13 @@ lapply(sea_ls, function(ind){ #test with ind <- sea_ls[[10]] ... doesn't have to
       #rbind all bursts and save classified and smoothed dataframe per individual
       bind_rows()
     
-    saveRDS(bursts_smooth, file = paste0("/home/mahle68/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/git_repository/R_files/GPS_seg_Aug23/classified_data/animal_", 
-                                         unique(ind$local_identifier), "_classified_bursts.rds")) #this is an sf file
+    saveRDS(bursts_smooth, file = paste0("R_files/GPS_seg_Nov23/animal_", 
+                                         unique(ind$individual_local_identifier), "_classified_bursts.rds")) #this is an sf file
     gc()
   } 
 })
 
-Sys.time() - b #32 mins for all individuals
+Sys.time() - st_t # 8 hours for 31 individuals
 
-# plotting code to be used while developing the code ------------------------------------------------------------------------
-#2d interactive plotting
-mapview(b, zcol = "flight_clust_sm3")
+stopCluster(mycl) 
 
-#look at flight altitude
-ggplot() +
-  geom_path(data = b, aes(x = st_coordinates(b)[,1], y = height_msl), color = "gray") +
-  geom_point(data = b, aes(x = st_coordinates(b)[,1], y = height_msl, color = factor(flight_clust_sm3)),
-             size = 2.5, shape = 16) +
-  scale_color_viridis(discrete=TRUE, alpha = 0.4) +
-  theme_linedraw()
