@@ -35,7 +35,6 @@ inds_ls <- gps %>%
   st_as_sf(coords = c("location_long", "location_lat"), crs = wgs) %>% 
   group_split(individual_local_identifier)
 
-
 #define variables for segmentation
 min_res_tl <- 2 # 1 to max 2 sec time lag
 min_burst_d <- 30 # we want bursts of at least 30 secs
@@ -301,4 +300,35 @@ lapply(inds_ls, function(ind){
 Sys.time() - st_t # 8 hours for 31 individuals
 
 stopCluster(mycl) 
+
+#STEP 3: prepare for Movebank annotations -----------------------------
+#open all the annotated GPS files
+
+gps_seg <- list.files("R_files/GPS_seg_Nov23/", pattern = "bursts.rds", full.names = T) %>% #these are sf objects!!
+  map(readRDS) %>% 
+  bind_rows() %>% 
+  mutate(row_id = row_number(), #assign a row id to be able to cbind the annotated data with the original data later on
+         location_long = st_coordinates(.)[,1],
+         location_lat = st_coordinates(.)[,2]) %>% 
+  st_drop_geometry()
+
+#save the annotated dataset
+saveRDS(gps_seg, file = "R_files/all_gps_seg_Nov2023.rds")
+
+#Prepare for track annotation on Env-Data
+gps_mb <- gps_seg %>% 
+  mutate(timestamp = paste(as.character(timestamp),"000",sep = ".")) %>% 
+  rename("location-long" = location_long,
+         "location-lat" = location_lat) %>% 
+  group_by((row_number()-1) %/% (n()/6)) %>% #split into 6 groups, to keep the nrow of each group below 1 million 
+  nest %>% pull(data)
+
+lapply(c(1:6), function(x){
+  data <- gps_mb[[x]] %>% 
+    select("location-long","location-lat", "timestamp", "row_id") %>% #only keep the columns that env-data needs, and row-id to merge the annotations with the original data 
+    as.data.frame()
+  
+  write.csv(data, file = paste0("R_files/all_gps_seg_Nov23_", x, ".csv"))
+})
+
 

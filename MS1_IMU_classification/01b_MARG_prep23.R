@@ -23,28 +23,19 @@ g_transform <- function(x) {
 
 #STEP 1: download all IMU data -------------------------------------------------
 
-inds <- "D329_015"
-
 creds <- movebank_store_credentials(username = "mahle68", rstudioapi::askForPassword())
 HB_id <- movebank_get_study_id("European Honey Buzzard_Finland")
 
 movebank_retrieve(study_id = 2201086728, entity_type= "tag_type")
 
 mag <- movebank_retrieve(study_id = 2201086728, sensor_type_id = "magnetometer", 
-                         individual_local_identifier = inds,  entity_type = "event",  attributes = "all", 
-                         timestamp_start = as.POSIXct("2023-09-01 00:00:00"))
+                         entity_type = "event",  attributes = "all")
 
 quat <- movebank_retrieve(study_id = 2201086728, sensor_type_id = "orientation", 
-                         individual_local_identifier = inds,  entity_type = "event",  attributes = "all", 
-                         timestamp_start = as.POSIXct("2023-09-01 00:00:00"))
+                         entity_type = "event",  attributes = "all")
 
 acc <- movebank_retrieve(study_id = 2201086728, sensor_type_id = "acceleration", 
-                         individual_local_identifier = inds,  entity_type = "event",  attributes = "all", 
-                         timestamp_start = as.POSIXct("2023-09-01 00:00:00"))
-
-gps <- movebank_retrieve(study_id = 2201086728, sensor_type_id = "gps", 
-                         individual_local_identifier = inds,  entity_type = "event",  attributes = "all", 
-                         timestamp_start = as.POSIXct("2023-09-01 00:00:00"))
+                         entity_type = "event",  attributes = "all")
 
 #put the quat and mag together
 or <- mag %>% 
@@ -53,6 +44,9 @@ or <- mag %>%
   as.data.frame()
 
 rm(mag,quat)
+
+saveRDS(or, "all_orientation_nov_7_23.rds")
+saveRDS(acc, "all_acceleration_nov_7_23.rds")
 
 # STEP 3: convert acc units to g -------------------------------------------------
 
