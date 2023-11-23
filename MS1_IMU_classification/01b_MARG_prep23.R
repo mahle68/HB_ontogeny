@@ -167,10 +167,12 @@ saveRDS(acc_w_gps, "GPS_matched_ACC_Nov23.rds")
 
 # Now you have acc_w_gps, which is a list of data frames, where each data frame contains ACC data with associated GPS information.
 
+acc_w_gps23 <- acc_w_gps[names(acc_w_gps) %in% birds_23]
+
 #add a column comparing acc and gps timestamps. then save one file per individual. also limit to migratory season!! 1.09 - 30.10
-lapply(acc_w_gps, function(x){
+lapply(acc_w_gps23, function(x){
   x2 <- x %>% 
-    filter(between(timestamp, as.POSIXct("2022-09-01 00:00:00", tz = "UTC"), as.POSIXct("2022-10-31 00:00:00", tz = "UTC"))) %>% 
+    filter(between(timestamp, as.POSIXct("2023-09-01 00:00:00", tz = "UTC"), as.POSIXct("2023-11-10 00:00:00", tz = "UTC"))) %>% 
     mutate(acc_gps_timediff_sec = if_else(is.na(timestamp_closest_gps), NA, difftime(timestamp, timestamp_closest_gps, units = "secs") %>%  as.numeric())) #%>% 
     #select(-tag_id.x) %>% 
     #rename(tag_id = tag_id.y)
