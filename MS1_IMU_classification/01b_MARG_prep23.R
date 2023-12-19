@@ -14,6 +14,9 @@ wgs <- st_crs("+proj=longlat +datum=WGS84 +no_defs")
 
 setwd("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/R_files/")
 
+#source functions for wind direction
+source("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/lap_paper/AnEnvIPaper/data_prep/EnvironmentalData/airspeed_windsupport_crosswind.R")
+
 birds_23 <- c("D329_012", "D329_013", "D329_014", "D329_015", "D326_193", "D326_192")
 
 #STEP 1: download all IMU data -------------------------------------------------
@@ -44,16 +47,14 @@ saveRDS(or, "all_orientation_nov_7_23.rds")
 saveRDS(acc, "all_acceleration_nov_7_23.rds")
 
 #STEP 2: open segmented GPS data and create a list of dataframes (done in 01c_GPS_prep.r) -------------------------------------------------
-
-gps_ls <- list.files("GPS_seg_Nov23/", pattern = "bursts.rds", full.names = T) %>%  #make sure these are data frames 
-  map(readRDS) %>%
-  bind_rows() %>%  #these IDs are the same as those in the files under annotation in Movebank, so these can be merged later
-  mutate(row_id = row_number(), #assign a row id to be able to cbind the annotated data with the original data later on
-         location_long = st_coordinates(.)[,1],
-         location_lat = st_coordinates(.)[,2]) %>% 
-  st_drop_geometry() %>% 
-  as.data.frame()
-
+#this dataset already contains the annotations with w_star and wind (from 01c_GPS_prep.r). this was only used for the 2023 birds. the older birds were matched without env annotations
+gps_ls <- readRDS("all_gps_seg_ann_Nov2023.rds") %>% 
+  rename(thermal_uplift_ms = Movebank.Thermal.Uplift..ECMWF.,
+         wind_u = ECMWF.ERA5.PL.U.Wind,
+         wind_v = ECMWF.ERA5.PL.V.Wind) %>% 
+  mutate(wind_speed_ms = sqrt(wind_u^2 + wind_v^2),
+         wind_direction_deg = wind.directionFROM(wind_u, wind_v))
+  
 gps_ls <- split(gps_ls, gps_ls$individual_local_identifier)
    
 # STEP 3: convert acc units to g -------------------------------------------------
@@ -83,7 +84,7 @@ Sys.time()-st #2 minutes
 saveRDS(acc_g, "all_acceleration_g_nov_7_23.rds")
 
 #######because the mag/quaternion are stored differently than acc (n of rows is different), match with gps separately
-#STEP 4: find nearest GPS fix to each quat/mag burst -------------------------------------------------
+# STEP 4: find nearest GPS fix to each quat/mag burst -------------------------------------------------
 
 or <- readRDS("all_orientation_nov_7_23.rds")
 or_ls <- split(or, or$individual_local_identifier) #make sure this is a list of dataframes, not tibbles
@@ -98,31 +99,35 @@ find_closest_gps <- function(or_data, gps_data, time_tolerance = 10 * 60) {
     if (nrow(gps_sub) >= 1) {
       time_diff <- abs(difftime(gps_sub$timestamp, or_row_time, units = "secs"))
       min_diff <- which.min(time_diff)
-      or_data[h, c("timestamp_closest_gps", "location_long_closest_gps", "location_lat_closest_gps", "height_above_ellipsoid_closest_gps", "row_id", "flight_type_sm2", "flight_type_sm3", "track_flight_seg_id")] <- 
-        gps_sub[min_diff, c("timestamp", "location_long", "location_lat", "height_above_ellipsoid", "row_id", "flight_clust_sm2", "flight_clust_sm3", "track_flight_seg_id")]
+      or_data[h, c("timestamp_closest_gps", "location_long_closest_gps", "location_lat_closest_gps", "height_above_ellipsoid_closest_gps", "ground_speed_closest_gps", "heading_closest_gps", "row_id", 
+                   "flight_type_sm2", "flight_type_sm3", "track_flight_seg_id", "wind_u", "wind_v", "wind_direction_deg", "wind_speed_ms", "thermal_uplift_ms")] <- 
+        gps_sub[min_diff, c("timestamp", "location_long", "location_lat", "height_above_ellipsoid", "ground_speed", "heading", "row_id", 
+                            "flight_clust_sm2", "flight_clust_sm3", "track_flight_seg_id",  "wind_u", "wind_v", "wind_direction_deg", "wind_speed_ms", "thermal_uplift_ms")]
     } else {
-      or_data[h, c("timestamp_closest_gps", "location_long_closest_gps", "location_lat_closest_gps", "height_above_ellipsoid_closest_gps", "row_id", "flight_type_sm2", "flight_type_sm3", "track_flight_seg_id")] <- NA
+      or_data[h, c("timestamp_closest_gps", "location_long_closest_gps", "location_lat_closest_gps", "height_above_ellipsoid_closest_gps", "ground_speed_closest_gps", "heading_closest_gps", "row_id", 
+                   "flight_type_sm2", "flight_type_sm3", "track_flight_seg_id", "wind_u", "wind_v", "wind_direction_deg", "wind_speed_ms", "thermal_uplift_ms")] <- NA
     }
     return(or_data[h, ])
   })
 }
 
-or_ls23 <- or_ls[names(or_ls) %in% birds_23]
-gps_ls23 <- gps_ls[names(gps_ls) %in% birds_23]
+or_ls22 <- or_ls[!names(or_ls) %in% birds_23]
+gps_ls22 <- gps_ls[!(names(gps_ls) %in% birds_23)]
 
 # Create a list of data frames with or data and associated GPS information
 (b <- Sys.time())
-or_w_gps <- map2(or_ls23, gps_ls23, ~ find_closest_gps(or_data = .x, gps_data = .y))
-Sys.time() - b # 8.9 hrs for 31 inds
+or_w_gps <- map2(or_ls22, gps_ls22, ~ find_closest_gps(or_data = .x, gps_data = .y))
+Sys.time() - b # 8.9 hrs for 31 inds; 6 hrs for 6 on tower
 
-saveRDS(or_w_gps, "GPS_matched_orientation_Nov23.rds") # a list of data frames
+#saveRDS(or_w_gps, "GPS_matched_orientation_Nov23.rds") # a list of data frames
 saveRDS(or_w_gps, "GPS_matched_orientation_Nov23_2023birds.rds")
 
 
 #add a column comparing or and gps timestamps. then save one file per individual. also limit to migratory season!! 1.09 - 30.10
 lapply(or_w_gps, function(x){
   x2 <- x %>% 
-    filter(between(timestamp, as.POSIXct("2023-09-01 00:00:00", tz = "UTC"), as.POSIXct("2023-11-10 00:00:00", tz = "UTC"))) %>% #this filters for migration-ish :/
+    #filter(between(timestamp, as.POSIXct("2023-09-01 00:00:00", tz = "UTC"), as.POSIXct("2023-11-10 00:00:00", tz = "UTC"))) %>% #this filters for migration-ish :/
+    filter(between(timestamp, as.POSIXct("2022-09-01 00:00:00", tz = "UTC"), as.POSIXct("2022-11-10 00:00:00", tz = "UTC"))) %>% #this filters for migration-ish :/
     mutate(imu_gps_timediff_sec = if_else(is.na(timestamp_closest_gps), NA, difftime(timestamp, timestamp_closest_gps, units = "secs") %>%  as.numeric()))
   
   write.csv(x2, 
@@ -131,7 +136,7 @@ lapply(or_w_gps, function(x){
 })
 
 
-#STEP 5: find nearest GPS fix to each ACC burst -------------------------------------------------
+# STEP 5: find nearest GPS fix to each ACC burst -------------------------------------------------
 
 #list all acc files
 acc <- readRDS("all_acceleration_g_nov_7_23.rds") %>% 
@@ -149,10 +154,13 @@ find_closest_gps <- function(acc_data, gps_data, time_tolerance = 10 * 60) {
     if (nrow(gps_sub) >= 1) {
       time_diff <- abs(difftime(gps_sub$timestamp, acc_row_time, units = "secs"))
       min_diff <- which.min(time_diff)
-      acc_data[h, c("timestamp_closest_gps", "location_long_closest_gps", "location_lat_closest_gps", "height_above_ellipsoid_closest_gps", "row_id", "flight_type_sm2", "flight_type_sm3", "track_flight_seg_id")] <- 
-        gps_sub[min_diff, c("timestamp", "location_long", "location_lat", "height_above_ellipsoid", "row_id", "flight_clust_sm2", "flight_clust_sm3", "track_flight_seg_id")]
+      acc_data[h, c("timestamp_closest_gps", "location_long_closest_gps", "location_lat_closest_gps", "height_above_ellipsoid_closest_gps", "ground_speed_closest_gps", "heading_closest_gps", "row_id", 
+                    "flight_type_sm2", "flight_type_sm3", "track_flight_seg_id", "wind_u", "wind_v", "wind_direction_deg", "wind_speed_ms", "thermal_uplift_ms")] <- 
+        gps_sub[min_diff, c("timestamp", "location_long", "location_lat", "height_above_ellipsoid", "ground_speed", "heading", "row_id", 
+                            "flight_clust_sm2", "flight_clust_sm3", "track_flight_seg_id",  "wind_u", "wind_v", "wind_direction_deg", "wind_speed_ms", "thermal_uplift_ms")]
     } else {
-      acc_data[h, c("timestamp_closest_gps", "location_long_closest_gps", "location_lat_closest_gps", "height_above_ellipsoid_closest_gps", "row_id", "flight_type_sm2", "flight_type_sm3", "track_flight_seg_id")] <- NA
+      acc_data[h, c("timestamp_closest_gps", "location_long_closest_gps", "location_lat_closest_gps", "height_above_ellipsoid_closest_gps", "ground_speed_closest_gps", "heading_closest_gps", "row_id", 
+                    "flight_type_sm2", "flight_type_sm3", "track_flight_seg_id", "wind_u", "wind_v", "wind_direction_deg", "wind_speed_ms", "thermal_uplift_ms")] <- NA
     }
     return(acc_data[h, ])
   })
@@ -163,19 +171,23 @@ find_closest_gps <- function(acc_data, gps_data, time_tolerance = 10 * 60) {
 acc_w_gps <- map2(acc_ls, gps_ls, ~ find_closest_gps(acc_data = .x, gps_data = .y))
 Sys.time() - b # 2 hours
 
-saveRDS(acc_w_gps, "GPS_matched_ACC_Nov23.rds")
+saveRDS(acc_w_gps, "GPS_matched_ACC_Nov23_allbirds.rds")
 
 # Now you have acc_w_gps, which is a list of data frames, where each data frame contains ACC data with associated GPS information.
 
-acc_w_gps23 <- acc_w_gps[names(acc_w_gps) %in% birds_23]
 
 #add a column comparing acc and gps timestamps. then save one file per individual. also limit to migratory season!! 1.09 - 30.10
-lapply(acc_w_gps23, function(x){
+lapply(acc_w_gps, function(x){
+  
+  if(x$individual_local_identifier[1] %in% birds_23){
+    x2 <- x %>% 
+      filter(between(timestamp, as.POSIXct("2023-09-01 00:00:00", tz = "UTC"), as.POSIXct("2023-11-10 00:00:00", tz = "UTC"))) %>% 
+      mutate(acc_gps_timediff_sec = if_else(is.na(timestamp_closest_gps), NA, difftime(timestamp, timestamp_closest_gps, units = "secs") %>%  as.numeric()))
+  } else{
   x2 <- x %>% 
-    filter(between(timestamp, as.POSIXct("2023-09-01 00:00:00", tz = "UTC"), as.POSIXct("2023-11-10 00:00:00", tz = "UTC"))) %>% 
-    mutate(acc_gps_timediff_sec = if_else(is.na(timestamp_closest_gps), NA, difftime(timestamp, timestamp_closest_gps, units = "secs") %>%  as.numeric())) #%>% 
-    #select(-tag_id.x) %>% 
-    #rename(tag_id = tag_id.y)
+    filter(between(timestamp, as.POSIXct("2022-09-01 00:00:00", tz = "UTC"), as.POSIXct("2022-10-30 00:00:00", tz = "UTC"))) %>% 
+    mutate(acc_gps_timediff_sec = if_else(is.na(timestamp_closest_gps), NA, difftime(timestamp, timestamp_closest_gps, units = "secs") %>%  as.numeric())) #
+  }
   
   write.csv(x2, 
             file = paste0("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/R_files/Pritish_collab_IMU/matched_gps_acc/",
