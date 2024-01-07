@@ -11,7 +11,7 @@ wgs <- st_crs("+proj=longlat +datum=WGS84 +no_defs")
 
 setwd("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/R_files/")
 
-#function to calculate vectorial magnitude
+#function to calculate vector magnitude
 vect_mag <- function(x, y, z) {
   sqrt(x^2 + y^2 + z^2)
 }
@@ -23,69 +23,59 @@ acc_w_gps <- readRDS("GPS_matched_ACC_Nov23_allbirds.rds")
 
 gr_speed <- purrr::map(acc_w_gps, ~.x %>% drop_na(ground_speed_closest_gps)) %>% bind_rows() #~ creates a function, x is a placeholder for the current element
 
-#calculate the vectorial magnitude of the g-transformed acc
+#calculate the vector magnitude of the g-transformed acc
 #indices for elements that correspond to each axis
 axis_1_i <- seq(1,length(sample), 3)
 axis_2_i <- seq(2,length(sample), 3)
 axis_3_i <- seq(3,length(sample), 3)
 
-gr_speed <- gr_speed[1:2,] %>% 
-  mutate(vect_mag_cc = purrr::map_chr(
-    strsplit(eobs_acceleration_g, " ") %>% unlist() %>% as.numeric(),
-    #~ unlist(.x) %>% as.numeric() %>% sqrt(sum())
-    ~ as.character(sqrt(sum(.x[axis_1_i]^2, .x[axis_2_i]^2,.x[axis_3_i]^2 ))) %>% str_c(collapse = " ")
-  ))
+#calculate vector magnitude
+gr_speed_vec_mag <- gr_speed  %>%
+  mutate(vector_mag = map_chr(eobs_acceleration_g, ~{
+    acc_g <- strsplit(.x, " ") %>% unlist() %>% as.numeric()
+    ax1 <- acc_g[axis_1_i]
+    ax2 <- acc_g[axis_2_i]
+    ax3 <- acc_g[axis_3_i]
+    vector_mag <- vect_mag(ax1, ax2, ax3)
+    as.character(vector_mag) %>% str_c(collapse = " ")
+  }))
 
- gr_speed <- apply(gr_speed, 1, function(x){
-   
-   acc_g <- strsplit(x$eobs_acceleration_g, " ") %>% unlist() %>%  as.numeric()
-   ax1 <- acc_g[axis_1_i]
-   ax2 <- acc_g[axis_2_i]
-   ax3 <- acc_g[axis_3_i]
-   
-   vectorial_mag <- mapply(vect_mag, ax1, ax2, ax3)
-   
-   x$vectorial_mag <- as.character(vectorial_mag) %>%  str_c(collapse = " ")
-   
- })
 
-#gr_speed <- lapply(gr_speed %>% 
-#  mutate(vect_mag_acc = )
-str_split(stationary$eobs_acceleration_g[1], " ") %>%  unlist() %>% as.numeric()
-
-axis_1_i <- seq(1,length(sample), 3)
-axis_2_i <- seq(2,length(sample), 3)
-axis_3_i <- seq(3,length(sample), 3)
-
+#extract stationary bursts based on ground speed and calculate vector magnitude
 stationary <- gr_speed %>% 
-  filter(ground_speed_closest_gps == 0)
-
-#calculate the vectorial magnitude of the g-transformed acc
-
-str_subset(stationary$eobs_acceleration_g[1], " ")
-axis_1_i <- seq(1,length(sample), 3)
-axis_2_i <- seq(2,length(sample), 3)
-axis_3_i <- seq(3,length(sample), 3)
-
-
-
-#################### copied stuff
-#open files for two sample individuals
-two_inds <- list.files("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/R_files/Pritish_collab_IMU/matched_gps_acc",
-                       pattern = "flap.csv", full.names = T) %>% 
-  map(read.csv) %>% 
-  bind_rows() %>% 
-  drop_na(location_long_closest_gps) %>% 
-  st_as_sf(coords = c("location_long_closest_gps", "location_lat_closest_gps"), crs = wgs) %>% 
-  mutate(flapping = as.factor(flap_indicator))
-
-#compare to the high-res gps segmentation
-gps_seg <- str_subset(list.files("/home/mahle68/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/R_files/GPS_seg_Aug23/classified_data", full.names = T),
-                      pattern = paste0(unique(two_inds$individual_local_identifier), collapse = '|')) %>%  #add the OR sign in between the two names!
-  map(readRDS) %>% 
-  bind_rows()
+  filter(ground_speed_closest_gps == 0) %>%
+  mutate(vector_mag = map_chr(eobs_acceleration_g, ~{
+    acc_g <- strsplit(.x, " ") %>% unlist() %>% as.numeric()
+    ax1 <- acc_g[axis_1_i]
+    ax2 <- acc_g[axis_2_i]
+    ax3 <- acc_g[axis_3_i]
+    vector_mag <- vect_mag(ax1, ax2, ax3)
+    as.character(vector_mag) %>% str_c(collapse = " ")
+  }))
 
 
-mapview(gps_seg, zcol = "flight_clust_sm3", alpha = 0) + 
-  mapview(two_inds %>% filter(flapping == 1), color = "red") +
-  mapview(two_inds %>% filter(flapping == 0), color = "black")
+#plot the histogram of all vector magnitudes
+#2022
+stationary22 <- stationary %>% 
+  filter(year(timestamp) == 2022)
+hist(str_split(stationary22$vector_mag, " ") %>% unlist() %>% as.numeric())
+
+#2023
+stationary23 <- stationary %>% 
+  filter(year(timestamp) == 2023)
+hist(str_split(stationary23$vector_mag, " ") %>% unlist() %>% as.numeric())
+
+
+ggplot(df, aes(x=value)) +
+  geom_histogram(binwidth=1) +
+  facet_wrap(~year, scales="free_y") +
+  theme_minimal() +
+  xlab("Value") +
+  ylab("Count") +
+  ggtitle("Histogram per Year")
+
+
+
+#convert to sf object and plot on map
+stationary_sf <- stationary %>% 
+  st_as_sf(coords = c("location_long_closest_gps", "location_lat_closest_gps"), crs = wgs)
