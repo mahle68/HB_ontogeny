@@ -33,66 +33,39 @@ birds_ls <- split(gps_seg, gps_seg$individual_local_identifier)
 set.seed(20)
 rnd_seeds <- sample(1:100, length(birds_ls))
 
-lapply(birds_ls, function(x){
-  
-  #filter for four minute bursts
-  #bursts_4min <- x %>% 
-  #  group_by(burst_id) %>% 
-  #  filter(n() == 236.0) %>% 
-  #  st_as_sf(coords = c("location_long", "location_lat"), crs = "epsg:4326")
-   
-  #mapview(bursts_4min %>% filter(burst_id %in% bursts_rnd), zcol = "flight_clust_sm3")
-  
-  bursts_4min_df <- x %>% 
+lapply(c(1:length(birds_ls)), function(x){
+
+  bursts_4min_df <- birds_ls[[x]] %>% 
     group_by(burst_id) %>% 
-    filter(n() == 236.0)
+    filter(n() == 236.0) %>% 
+    ungroup()
   
   #randomly select n bursts
-  set.seed(20)
+  set.seed(rnd_seeds[x])
   bursts_rnd <- sample(unique(bursts_4min_df$burst_id), 20, replace = F)
   
 
   #create a color palette
-  pal <- c("circular_soaring" = viridis(10)[1], #purple
-           "linear_soaring" = viridis(10)[6], #teal
-           "shallow_circular_soaring" = viridis(10)[9], #yellow
-           "gliding" = viridis(10)[3], #blue
+  pal <- c("circular_soaring" = "darkviolet",
+           "gliding" = "gold1",
+           "linear_soaring" = "limegreen",
+           "shallow_circular_soaring" = "firebrick1",
            "other" = "grey") 
   
   burst_ls <- split(bursts_4min_df, bursts_4min_df$burst_id)
   
-  lapply(burst_ls, function(burst){
-  
-    plot_ly(burst, x = ~location_long, y = ~location_lat, z = ~height_above_ellipsoid, 
-            colors = pal, color = ~flight_clust_sm3,
-            type = "scatter3d", mode = "markers")
-  })
+  plots_3d <- lapply(burst_ls, function(burst){
     
-  #   
-  # p <- plot_ly(burst, x = ~location_long, y = ~location_lat, z = ~height_above_ellipsoid, colors = pal,
-  #              type = "scatter3d", mode = "lines", name = ~burst_id,
-  #              line = list(color = 'darkgrey'),
-  #              showlegend = F) %>%
-  #   add_trace(burst, x = ~location_long, y = ~location_lat, z = ~height_above_ellipsoid, 
-  #             colors = pal, color = ~flight_clust_sm3,
-  #             type = "scatter3d", mode = "markers")
-  #             
-  #             
-  #             text = ~paste0("vert_speed: ", round(vert_speed,2),"\n",
-  #                          "turn_angle: ",round(turn_angle_cum,2),"\n",
-  #                          "ground_speed: ",round(ground_speed,2)),
-  #             marker = list(size = 5),
-  #             showlegend = T, inherit = F) %>%
-  #   layout(title = paste0("Animal ",unique(burst$individual_local_identifier),
-  #                         " - burst ",unique(burst$burst_id)),
-  #          scene=list(xaxis = list(title = "Longitude"), 
-  #                     yaxis = list(title = "Latitude"), 
-  #                     zaxis = list(title = "Height above ellipsoid (m)"),
-  #                     aspectmode = "manual", aspectratio=list(x=aspects["x"], y=aspects["y"], z=aspects["z"]))) #preserve long/lat aspect ratio
-  # 
-  # print(p)
-  # readline(prompt="Press [enter] to continue")
-  #})
+    p <- plot_ly(burst, x = ~location_long, y = ~location_lat, z = ~height_above_ellipsoid, 
+                 colors = pal, color = ~flight_clust_sm3,
+                 type = "scatter3d", mode = "markers",
+                 marker = list(size = 5),
+                 showlegend = T)
+  })
+  
+  plots_3d
+    
+})
   
   ###
   # 3D plotting interactive
@@ -142,7 +115,17 @@ lapply(birds_ls, function(x){
   ###
   
   
-})
+
+
+
+
+#filter for four minute bursts
+#bursts_4min <- x %>% 
+#  group_by(burst_id) %>% 
+#  filter(n() == 236.0) %>% 
+#  st_as_sf(coords = c("location_long", "location_lat"), crs = "epsg:4326")
+
+#mapview(bursts_4min %>% filter(burst_id %in% bursts_rnd), zcol = "flight_clust_sm3")
 
 
 
