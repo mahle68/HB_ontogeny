@@ -222,16 +222,16 @@ lapply(sea_env_ls, function(sea){
   for(i in unique(sea$unique_hour)){
     
     plot <- ggplot() +
-      geom_sf(data = region, fill = "grey75", col = "black", lwd = .6) +
-      geom_raster(data = sea %>% filter(unique_hour == i), aes(x = lon, y = lat, fill = wind_speed_10)) +
+      geom_raster(data = sea %>% filter(unique_hour == i), aes(x = lon, y = lat, fill = delta_t)) +
+      geom_sf(data = region, fill = "grey85", col = "black", lwd = .6) +
       geom_segment(data = sea %>% filter(unique_hour == i), 
                    aes(x = lon, xend = lon+u10/10, y = lat, 
                        yend = lat+v10/10), arrow = arrow(length = unit(0.12, "cm")), size = 0.3) +
       geom_point(data = gps %>%  filter(unique_hour == i), aes(x = location_long, y = location_lat), 
                  size = 3, colour = "gold1") +
       coord_sf(xlim = range(sea$lon), ylim =  range(sea$lat)) +
-      scale_fill_gradientn(colors = alpha(oce::oceColorsPalette(120), alpha = .7), limits = c(0,18), 
-                           na.value = "white", name = "Speed\n (m/s)") +
+      scale_fill_gradientn(colors = oce::oceColorsPalette(50), limits = c(-5,7), 
+                           na.value = "white", name = "delta_t\n (°C)") +
       theme_bw()+
       theme(axis.text = element_text(size = 12, colour = 1),
             legend.text = element_text(size = 10, colour = 1), 
@@ -240,7 +240,7 @@ lapply(sea_env_ls, function(sea){
             legend.background = element_rect(colour = 1, fill = "white"))+
       labs(x = NULL, y = NULL, title = sea %>%  filter(unique_hour == i) %>% .$date_time %>% .[1] %>% paste0(" UTC"))
     
-    ggsave(plot = plot, filename = paste0(wind_path, sea_name,"_", i, ".jpeg"), 
+    ggsave(plot = plot, filename = paste0(delta_t_path, sea_name,"_", i, ".jpeg"), 
            height = 8, width = 12, dpi = 300)
     
   }
