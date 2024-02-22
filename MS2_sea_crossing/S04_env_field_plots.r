@@ -107,8 +107,26 @@ lapply(c("Blatic", "Mediterranean"), function(x){
 
 # STEP 3: extract data ----------------------------------------------------------------------------#####
 
+## using terra
+# file_list <- list.files("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/data/ERA5_sea",
+#                         pattern = ".nc", full.names = TRUE)
+# 
+# #subsample the wind data
+# era5_data_b <- rast(file_list[[1]]) 
+# 
+# era5_data_b_low_res <- rast(file_list[[1]]) %>% 
+#   aggregate(fact = 4, fun = "modal")
+# 
+# vnames <- varnames(era5_data)
+# 
+# #calculate wind speed and aggregate to reduce spatial resolution
+# wind_speed_10_b <- sqrt(era5_data["u10"]^2 + era5_data["v10"]^2) %>% 
+#   aggregate(fact = 4, fun = "modal")
+
+### using ncdf4
 file_list <- list.files("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/data/ERA5_sea",
                         pattern = ".nc", full.names = TRUE)
+
 vname <- c("u100", "v100", "u10","v10", "t2m", "sst", "sp")
 
 
@@ -170,8 +188,7 @@ world <- st_read("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/
   st_union()
 
 #make one frame for each sea. one set of plots for each variable (wind and delta t)
-wind_path <- "/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/paper_prep/sea_crossing/BLS8_plots/wind_fileds/"
-delta_t_path <- "/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/paper_prep/sea_crossing/BLS8_plots/delta_t_fields/"
+output_path <- "/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/paper_prep/sea_crossing/BLS8_plots/wind_dt_fields/"
 
 lapply(sea_env_ls, function(sea){
   
@@ -189,71 +206,88 @@ lapply(sea_env_ls, function(sea){
   
   sea_name <- ifelse(max(sea$lat) > 60, "Baltic", "Mediterranean")
   
+  #reduce res of wind
+  low_res_wind <- sea %>% 
+    mutate(lon_lr = round(lon),
+           lat_lr = round(lat)) %>% 
+    group_by(unique_hour, lat_lr, lon_lr) %>% 
+    slice(1)
+  
   ############ plot the wind fields and color the sea based on delta t
   
-  if(sea_names == "Baltic"){
+  if(sea_name == "Baltic"){
     
-    #filter GPS data to be within the extent of the plot
+    #filter GPS data to be within the extent of the plot and keep one point per hour
     gps_b <- gps %>% 
       filter(between(location_lat, min(sea$lat), max(sea$lat)) &
-               between(location_long, min(sea$lon), max(sea$lon)))
-    
-    
-    for(i in unique(sea$unique_hour)){
-      
-      plot <- ggplot() +
-        geom_raster(data = sea %>% filter(unique_hour == i), aes(x = lon, y = lat, fill = delta_t)) +
-        geom_sf(data = region, fill = "grey85", col = "black", lwd = .6) +
-        geom_segment(data = sea %>% filter(unique_hour == i), 
-                     aes(x = lon, xend = lon+u10/10, y = lat, 
-                         yend = lat+v10/10), arrow = arrow(length = unit(0.12, "cm")), size = 0.3) +
-        geom_point(data = gps_b %>%  filter(unique_hour == i), aes(x = location_long, y = location_lat), 
-                   size = 3, colour = "gold1") +
-        coord_sf(xlim = range(sea$lon), ylim =  range(sea$lat)) +
-        scale_fill_gradientn(colors = oce::oceColorsPalette(50), limits = c(-5,7),
-                             na.value = "white", name = "delta_t\n (°C)") +
-        theme_bw()+
-        theme(axis.text = element_text(size = 12, colour = 1),
-              legend.text = element_text(size = 10, colour = 1), 
-              legend.title = element_text(size = 12, colour = 1),
-              legend.position = c(.92,.17),
-              legend.background = element_rect(colour = 1, fill = "white"))+
-        labs(x = NULL, y = NULL, title = sea %>%  filter(unique_hour == i) %>% .$date_time %>% .[1] %>% paste0(" UTC"))
-      
-      ggsave(plot = plot, filename = paste0(delta_t_path, sea_name,"_", i, ".jpeg"), 
-             height = 8, width = 12, dpi = 300)
-    }
-    
-  } else {
-    
-    #filter GPS data to be within the extent of the plot
-    gps_m <- gps %>% 
-      filter(between(location_lat, min(sea$lat), max(sea$lat)) &
-               between(location_long, min(sea$lon), max(sea$lon)))
+               between(location_long, min(sea$lon), max(sea$lon))) %>% 
+      group_by(individual_local_identifier, unique_hour) %>% 
+      slice(1)
     
     for(i in unique(sea$unique_hour)){
       
       plot <- ggplot() +
         geom_tile(data = sea %>% filter(unique_hour == i), aes(x = lon, y = lat, fill = delta_t)) +
-        geom_sf(data = region, fill = "black", col = "black", lwd = .6) +
-        geom_segment(data = sea %>% filter(unique_hour == i), 
+        geom_sf(data = region, fill = "gray85", col = "gray65", lwd = .6) +
+        geom_segment(data = low_res_wind %>% filter(unique_hour == i), 
                      aes(x = lon, xend = lon+u10/10, y = lat, 
-                         yend = lat+v10/10), arrow = arrow(length = unit(0.12, "cm")), size = 0.3, col = "gray50") +
-        geom_point(data = gps_m %>%  filter(unique_hour == i), aes(x = location_long, y = location_lat), 
-                   size = 3, colour = "gold1") +
+                         yend = lat+v10/10), arrow = arrow(length = unit(0.12, "cm")), size = 0.3, col = "black") +
+        geom_point(data = gps_b %>%  filter(unique_hour == i), aes(x = location_long, y = location_lat), 
+                   size = 3, fill = "black", color = "white", shape = 21) +
         coord_sf(xlim = range(sea$lon), ylim =  range(sea$lat)) +
-        scale_fill_gradientn(colors = oce::oceColorsPalette(50), limits = c(-5,7),  #the limit for baltic sea: c(-5,7); for the Med: c(-5:8)
+        scale_fill_gradientn(colors = oce::oceColorsPalette(50), limits = c(-5.5,8),  #the limit for baltic sea: c(-5,7); for the Med: c(-5:8)
                              na.value = "white", name = "delta_t\n (°C)") +
-        theme_void()+
-        theme(axis.text = element_text(size = 12, colour = 1),
+        theme_void() +
+        theme(plot.title = element_text(size = 18, face="italic"),
+              axis.text = element_text(size = 12, colour = 1),
               legend.text = element_text(size = 10, colour = 1), 
               legend.title = element_text(size = 12, colour = 1),
               legend.position = c(.92,.17),
-              legend.background = element_rect(colour = 1, fill = "white"))+
+              legend.key.width = unit(0.6, "cm"),
+              legend.background = element_rect(colour = "white", fill = "white"),
+        )+
         labs(x = NULL, y = NULL, title = sea %>%  filter(unique_hour == i) %>% .$date_time %>% .[1] %>% paste0(" UTC"))
       
-      ggsave(plot = plot, filename = paste0(delta_t_path, sea_name,"_", i, ".jpeg"), 
+      ggsave(plot = plot, filename = paste0(output_path, sea_name,"_", i, ".jpeg"), 
              height = 8, width = 12, dpi = 300)
+    }
+    
+  } else {
+    
+    
+    #filter GPS data to be within the extent of the plot and keep one point per hour
+    gps_m <- gps %>% 
+      filter(between(location_lat, min(sea$lat), max(sea$lat)) &
+               between(location_long, min(sea$lon), max(sea$lon))) %>% 
+      group_by(individual_local_identifier, unique_hour) %>% 
+      slice(1)
+    
+    for(i in unique(sea$unique_hour)){
+      
+      plot <- ggplot() +
+        geom_tile(data = sea %>% filter(unique_hour == i), aes(x = lon, y = lat, fill = delta_t)) +
+        geom_sf(data = region, fill = "gray85", col = "gray65", lwd = .6) +
+        geom_segment(data = low_res_wind %>% filter(unique_hour == i), 
+                     aes(x = lon, xend = lon+u10/10, y = lat, 
+                         yend = lat+v10/10), arrow = arrow(length = unit(0.12, "cm")), size = 0.3, col = "black") +
+        geom_point(data = gps_m %>%  filter(unique_hour == i), aes(x = location_long, y = location_lat), 
+                   size = 3, fill = "black", color = "white", shape = 21) +
+        coord_sf(xlim = range(sea$lon), ylim =  range(sea$lat)) +
+        scale_fill_gradientn(colors = oce::oceColorsPalette(50), limits = c(-5.5,8),  #the limit for baltic sea: c(-5,7); for the Med: c(-5:8)
+                             na.value = "white", name = "delta_t\n (°C)") +
+        theme_void() +
+        theme(plot.title = element_text(size = 18, face="italic"),
+              axis.text = element_text(size = 12, colour = 1),
+              legend.text = element_text(size = 10, colour = 1), 
+              legend.title = element_text(size = 12, colour = 1),
+              legend.position = c(.925,.2),
+              legend.key.width = unit(0.5, "cm"),
+              legend.background = element_rect(colour = "white", fill = "white"),
+        )+
+        labs(x = NULL, y = NULL, title = sea %>%  filter(unique_hour == i) %>% .$date_time %>% .[1] %>% paste0(" UTC"))
+      
+      ggsave(plot = plot, filename = paste0(output_path, sea_name,"_", i, ".jpeg"), 
+             height = 6.5, width = 12, dpi = 300)
     }
     
   }
