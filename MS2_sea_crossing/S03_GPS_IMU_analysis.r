@@ -7,6 +7,10 @@
 library(tidyverse)
 library(sf)
 library(mgcv)
+library(mapview)
+library(ggridges)
+library(viridis)
+library(hrbrthemes)
 
 # STEP 1: Open annotated gps data ---------------------------------------------------------------------------------------------
 sea_df <- readRDS("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/R_files/sea_gps_seg_ann.rds") %>% 
@@ -56,8 +60,42 @@ flight_ls <- lapply(sf_ls, function(x){ #for each individual
   
 })
 
+saveRDS(flight_ls, "/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/R_files/sea_IMU.rds")
 
-# STEP 3: old stuff  ---------------------------------------------------------------------------------------------------------------------------------------------------
+
+# STEP 4: Exploration ---------------------------------------------------------------------------------------------
+
+flight_df <- readRDS("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/R_files/sea_IMU.rds") %>% 
+  bind_rows()
+
+ggplot(flight_df, aes(x = yday(timestamp), y = stdBank_nonFlap, color = individual_local_identifier)) +
+  geom_point() + 
+  facet_wrap(~individual_local_identifier)
+
+#density plots of flight metrics for each region
+flight_df <- flight_df %>% 
+  mutate(lat_region = ifelse(location_lat_closest_gps > 50, "Baltic", "Mediterranean"))
+
+ggplot(flight_df, aes(x = propFlap, y = lat_region, fill = ..x..)) +
+  geom_density_ridges_gradient(scale = 3, rel_min_height = 0.01) +
+  scale_fill_viridis(name = "Temp. [F]", option = "C") +
+  labs(title = 'Temperatures in Lincoln NE in 2016') +
+  theme_ipsum() +
+  theme(
+    legend.position="none",
+    panel.spacing = unit(0.1, "lines"),
+    strip.text.x = element_text(size = 8)
+  )
+
+ #OR
+
+ggplot(flight_df, aes(x = propFlap, color = lat_region)) +
+  geom_density(lwd = 1.2, linetype = 1) + 
+  geom_density(alpha = 0.7) + 
+  scale_fill_manual(values = cols)
+
+
+# ---------------------------------------------------------------------------------------------------------------------------------------------------
 
 
   
