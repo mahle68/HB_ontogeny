@@ -74,7 +74,7 @@ ggplot(flight_df, aes(x = yday(timestamp), y = stdBank_nonFlap, color = individu
 
 #density plots of flight metrics for each region
 flight_df <- flight_df %>% 
-  mutate(lat_region = ifelse(location_lat_closest_gps > 50, "Baltic", "Mediterranean"))
+  mutate(lat_region = factor(ifelse(location_lat_closest_gps > 50, "Baltic", "Mediterranean"), levels = c("Mediterranean","Baltic")))
 
 ggplot(flight_df, aes(x = propFlap, y = lat_region, fill = ..x..)) +
   geom_density_ridges_gradient(scale = 3, rel_min_height = 0.01) +
@@ -87,19 +87,75 @@ ggplot(flight_df, aes(x = propFlap, y = lat_region, fill = ..x..)) +
     strip.text.x = element_text(size = 8)
   )
 
- #OR
+X11(width = 7, height = 6)
+ggplot(flight_df, aes(x = propFlap, y = lat_region, color = lat_region)) + 
+  stat_density_ridges(jittered_points = TRUE, rel_min_height = .01,
+                      point_shape = "|", point_size = 1, point_alpha = 0.8, size = 0.2,
+                      calc_ecdf = F, panel_scaling = F, alpha = 0.5,
+                      scale = 1.5) +
+  labs(y = "", x = "Proportion of flapping") +
+  theme_minimal() +
+  theme(legend.text=element_text(size = 7),
+        legend.position = "none")
 
-ggplot(flight_df, aes(x = propFlap, color = lat_region)) +
-  geom_density(lwd = 1.2, linetype = 1) + 
-  geom_density(alpha = 0.7) + 
-  scale_fill_manual(values = cols)
+
+
+
+
+custom_colors <- c("darkviolet", "dodgerblue2")
+
+X11(width = 7, height = 7)
+prop_flap <- ggplot(flight_df, aes(x = propFlap, y = lat_region, color = lat_region, fill = lat_region)) + 
+  stat_density_ridges(jittered_points = F, rel_min_height = .01,
+                      point_shape = "|", point_size = 3, point_alpha = 0.8, size = 1.5,
+                      calc_ecdf = FALSE, panel_scaling = FALSE, alpha = 0.2,
+                      scale = 1.5) +
+  labs(y = "", x = "Proportion of flapping") +
+  scale_color_manual(values = custom_colors, guide = FALSE) +
+  scale_fill_manual(values = custom_colors, guide = FALSE) +
+  coord_cartesian(ylim = c(1.5,3)) +
+  theme_classic() +
+  theme(legend.text = element_text(size = 7),
+        legend.position = "none",
+        axis.text = element_text(size = 20),
+        axis.title = element_text(size = 20, margin = margin(t = 15)),  # Adjust the top margin for space
+        axis.title.x = element_text(margin = margin(t = 20))) 
+
+
+ggsave(plot = prop_flap, 
+       filename = "/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/conferences/BLS8_tokyo_2023/presentation_prep/figs/prop_flap_sea.jpeg", 
+       height = 7, width = 7, dpi = 300)
+
+# ggplot(flight_df, aes(x = propFlap, color = lat_region)) +
+#   geom_density(lwd = 1.2, linetype = 1) + 
+#   geom_density(alpha = 0.7) + 
+#   scale_fill_manual(values = cols)
+
+
+X11(width = 7, height = 7)
+prop_flap <- ggplot(flight_df, aes(x = numCircles, y = lat_region, color = lat_region, fill = lat_region)) + 
+  stat_density_ridges(jittered_points = F, rel_min_height = .01,
+                      point_shape = "|", point_size = 3, point_alpha = 0.8, size = 1.5,
+                      calc_ecdf = FALSE, panel_scaling = FALSE, alpha = 0.2,
+                      scale = 1.5) +
+  labs(y = "", x = "Proportion of flapping") +
+  scale_color_manual(values = custom_colors, guide = FALSE) +
+  scale_fill_manual(values = custom_colors, guide = FALSE) +
+  coord_cartesian(ylim = c(1.5,3)) +
+  theme_classic() +
+  theme(legend.text = element_text(size = 7),
+        legend.position = "none",
+        axis.text = element_text(size = 20),
+        axis.title = element_text(size = 20, margin = margin(t = 15)),  # Adjust the top margin for space
+        axis.title.x = element_text(margin = margin(t = 20))) 
+
 
 
 # ---------------------------------------------------------------------------------------------------------------------------------------------------
 
 
-  
-  ggplot(sea_sf, aes(x = local_identifier, fill = flight_clust_sm3)) +
+
+ggplot(sea_sf, aes(x = local_identifier, fill = flight_clust_sm3)) +
   geom_bar()
 
 ggplot(sea_ann, aes(x = flight_clust_sm3, y = wind_speed_950)) +
