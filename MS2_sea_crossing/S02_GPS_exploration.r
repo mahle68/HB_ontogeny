@@ -7,6 +7,8 @@
 library(tidyverse)
 library(sf)
 library(mgcv)
+library(mapview)
+library(ggridges)
 
 # STEP 0: Open segmented data -------------------------------------------------------------------------------------------------------------------------------------------------------
 sea_sf <- list.files("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/git_repository/R_files/GPS_seg_Aug23/classified_data", 
@@ -86,3 +88,43 @@ sea_df <- sea_sf %>%
 m <- gam(flight_clust_sm3 ~ scale(wind_speed_950) + scale(delta_t) +
            s(location_lat, location_long),
          family = multinom(K = 5), data = sea_df) #k = 1+unique(sea_df$flight_clust_sm3)
+
+# STEP 5: Distribution plots of delta t and wind support (for BLS8) ---------------------------------------------------------------------------------------------------------------------------------------------------
+
+sea_sf <- readRDS("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/R_files/sea_gps_seg_ann.rds") %>% 
+  mutate(location_lat = st_coordinates(.)[,2],
+         location_long = st_coordinates(.)[,1]) %>% 
+#  st_drop_geometry() %>% 
+  mutate(lat_region = factor(ifelse(location_lat > 50, "Baltic", "Mediterranean"), levels = c("Mediterranean","Baltic")))
+
+#viz for sanity check:
+sea_sf_hr <-  sea_sf %>% 
+  group_by(local_identifier, hour(timestamp)) %>% 
+  slice(1)
+
+custom_colors <- c("darkviolet", "dodgerblue2")
+
+X11(width = 8, height = 7)
+delta_t <- ggplot(sea_sf, aes(x = delta_t, y = lat_region, color = lat_region, fill = lat_region)) + 
+  stat_density_ridges(jittered_points = F, rel_min_height = .01,
+                      point_shape = "|", point_size = 3, point_alpha = 0.8, size = 1.5,
+                      calc_ecdf = FALSE, panel_scaling = FALSE, alpha = 0.2,
+                      scale = 1.5) +
+  labs(y = "", x = expression(Delta*" T (°C)")) +
+  scale_color_manual(values = custom_colors, guide = FALSE) +
+  scale_fill_manual(values = custom_colors, guide = FALSE) +
+  coord_cartesian(ylim = c(1.5,3),
+                  xlim = c(-6,10.5)) +
+  theme_classic() +
+  theme(legend.text = element_text(size = 7),
+        legend.position = "none",
+        axis.text = element_text(size = 20),
+        axis.title = element_text(size = 20, margin = margin(t = 15)),  # Adjust the top margin for space
+        axis.title.x = element_text(margin = margin(t = 20))) 
+
+
+ggsave(plot = delta_t, 
+       filename = "/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/conferences/BLS8_tokyo_2023/presentation_prep/figs/delta_t.png", 
+       height = 7, width = 8, dpi = 300)
+
+

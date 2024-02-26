@@ -11,6 +11,7 @@ library(ncdf4)
 library(ecmwfr)
 library(terra)
 library(oce)
+library(ggspatial)
 
 setwd("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/")
 
@@ -107,22 +108,6 @@ lapply(c("Blatic", "Mediterranean"), function(x){
 
 # STEP 3: extract data ----------------------------------------------------------------------------#####
 
-## using terra
-# file_list <- list.files("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/data/ERA5_sea",
-#                         pattern = ".nc", full.names = TRUE)
-# 
-# #subsample the wind data
-# era5_data_b <- rast(file_list[[1]]) 
-# 
-# era5_data_b_low_res <- rast(file_list[[1]]) %>% 
-#   aggregate(fact = 4, fun = "modal")
-# 
-# vnames <- varnames(era5_data)
-# 
-# #calculate wind speed and aggregate to reduce spatial resolution
-# wind_speed_10_b <- sqrt(era5_data["u10"]^2 + era5_data["v10"]^2) %>% 
-#   aggregate(fact = 4, fun = "modal")
-
 ### using ncdf4
 file_list <- list.files("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/data/ERA5_sea",
                         pattern = ".nc", full.names = TRUE)
@@ -174,6 +159,8 @@ sea_env_ls <- lapply(file_list, function(x){
   
   var_df
 }) 
+
+saveRDS(sea_env_ls, "/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/R_files/env_data_for_sea.rds")
 
 # STEP 4: Plot ----------------------------------------------------------------------------#####
 
@@ -295,9 +282,179 @@ lapply(sea_env_ls, function(sea){
 })
 
 
+# STEP 5: more intentional - Baltic ----------------------------------------------------------------------------#####
+
+#for the baltic sea, use only days 239 - 245
+
+output_path <- "/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/paper_prep/MS3_sea_crossing/BLS8_plots/wind_dt_fields/baltic_animation/"
+
+#open base layer
+world <- st_read("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/GIS_files/continent_shapefile/World_Continents.shp") %>% 
+  #st_crop(xmin = -62, xmax = 11, ymin = -51, ymax = -25) %>%
+  st_union()
+
+#extract env data for the Baltic Sea
+sea <- readRDS("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/R_files/env_data_for_sea.rds")[[1]] %>% 
+  filter(hour(date_time) %in% c(5:16) & between(yday(date_time), 238,246)) %>% #only look at the day time AND limit the days for before and at start of migration
+  mutate(wind_speed_10 = sqrt(u10^2 + v10^2), #m/s ,
+         wind_speed_100 = sqrt(u100^2 + v100^2), #m/s ,
+         delta_t = sst - t2m,
+         unique_hour = paste(str_pad(yday(date_time), 3, "left", "0"), str_pad(hour(date_time), 2, "left", "0"), sep = "_")) 
+
+#open entire GPS dataset and filter for the baltic sea, also reduce sampling to one-hourly
+gps_b <- readRDS("data/all_gps_nov_6_23.rds") %>% 
+  filter(between(timestamp, min(sea$date_time), max(sea$date_time))) %>% 
+  mutate(unique_hour = paste(str_pad(yday(timestamp), 3, "left", "0"), str_pad(hour(timestamp), 2, "left", "0"), sep = "_")) %>% 
+  filter(between(location_lat, min(sea$lat), max(sea$lat)) &
+           between(location_long, min(sea$lon), max(sea$lon))) %>% 
+  group_by(individual_local_identifier, unique_hour) %>% 
+  slice(1)
+
+sf_use_s2(FALSE)
+
+region <- world %>% 
+  st_crop(xmin = min(sea$lon) - 0.1, xmax = max(sea$lon) + 0.1, ymin = min(sea$lat) - 0.12, ymax = max(sea$lat) + 0.12)
+
+sea_name <- ifelse(max(sea$lat) > 60, "Baltic", "Mediterranean")
+
+#reduce res of wind
+low_res_wind <- sea %>% 
+  mutate(lon_lr = round(lon),
+         lat_lr = round(lat)) %>% 
+  group_by(unique_hour, lat_lr, lon_lr) %>% 
+  slice(1)
+
+for(i in unique(sea$unique_hour)){
+  
+  plot <- ggplot() +
+    geom_tile(data = sea %>% filter(unique_hour == i), aes(x = lon, y = lat, fill = delta_t)) +
+    geom_sf(data = region, fill = "gray85", col = "gray65", lwd = .6) +
+    geom_segment(data = low_res_wind %>% filter(unique_hour == i), 
+                 aes(x = lon, xend = lon+u10/10, y = lat, 
+                     yend = lat+v10/10), arrow = arrow(length = unit(0.12, "cm")), linewidth = 0.4, col = "black") +
+    geom_point(data = gps_b %>%  filter(unique_hour == i), aes(x = location_long, y = location_lat), 
+               size = 5, fill = "black", color = "white", shape = 21) +
+    coord_sf(xlim = range(sea$lon), ylim =  range(sea$lat)) +
+    scale_fill_gradientn(colors = oce::oceColorsPalette(50), limits = c(-5.5,8),  #the limit for baltic sea: c(-5,7); for the Med: c(-5:8)
+                         na.value = "white", name = expression(Delta*" T (°c)")) +
+    ggspatial::annotation_scale(
+      location = "br",
+      width_hint = 0.2,
+      pad_x = unit(1.3, "cm"), #adjust distance from margins
+      pad_y = unit(0.8, "cm"),
+      bar_cols = c("black", "white"),
+      text_family = "ArcherPro Book",
+      text_cex = 1,
+      text_col = "black") +
+    ggspatial::annotation_north_arrow(
+      location = "br", which_north = "true",
+      pad_x = unit(3.7, "cm"), 
+      pad_y = unit(1.2, "cm"), 
+      style = north_arrow_fancy_orienteering(line_col = "black", line_width = 1.3)) +
+    theme_void() +
+    theme(plot.title = element_text(size = 18, face="italic"),
+          axis.text = element_text(size = 14, colour = 1),
+          legend.text = element_text(size = 14, colour = 1, margin = margin(b = 1)), 
+          legend.title = element_text(size = 18, colour = 1, margin = margin(b = 1)),
+          legend.position = c(.91,.20),
+          legend.key.width = unit(0.6, "cm"),
+          legend.key.height = unit(0.8, "cm"),
+          legend.background = element_rect(colour = "white", fill = "white")
+    )+
+    labs(x = NULL, y = NULL, title = sea %>%  filter(unique_hour == i) %>% .$date_time %>% .[1] %>% paste0(" UTC"))
+  
+  ggsave(plot = plot, filename = paste0(output_path, sea_name,"_", i, ".jpeg"), 
+         height = 8, width = 12, dpi = 300)
+}
+
+#Animate in ubuntu terminal:
+#ffmpeg -framerate 10 -pattern_type glob -i "*.jpeg" output.mp4
 
 
+# STEP 5: more intentional - Med ----------------------------------------------------------------------------#####
+
+#for the med sea, use only days 253 - 290
+
+output_path <- "/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/paper_prep/MS3_sea_crossing/BLS8_plots/wind_dt_fields/Mediterranean_animation/"
+
+#open base layer
+world <- st_read("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/GIS_files/continent_shapefile/World_Continents.shp") %>% 
+  #st_crop(xmin = -62, xmax = 11, ymin = -51, ymax = -25) %>%
+  st_union()
+
+#extract env data for the Baltic Sea
+sea <- readRDS("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/R_files/env_data_for_sea.rds")[[2]] %>% 
+  filter(hour(date_time) %in% c(5:16) & between(yday(date_time), 253,290)) %>% #only look at the day time AND limit the days for before and at start of migration
+  #filter(between(yday(date_time), 253, 290)) %>% # limit the days for before and at start of migration
+  mutate(wind_speed_10 = sqrt(u10^2 + v10^2), #m/s ,
+         wind_speed_100 = sqrt(u100^2 + v100^2), #m/s ,
+         delta_t = sst - t2m,
+         unique_hour = paste(str_pad(yday(date_time), 3, "left", "0"), str_pad(hour(date_time), 2, "left", "0"), sep = "_")) 
+
+#open entire GPS dataset and filter for the baltic sea, also reduce sampling to one-hourly
+gps_m <- readRDS("data/all_gps_nov_6_23.rds") %>% 
+  filter(between(timestamp, min(sea$date_time), max(sea$date_time))) %>% 
+  mutate(unique_hour = paste(str_pad(yday(timestamp), 3, "left", "0"), str_pad(hour(timestamp), 2, "left", "0"), sep = "_")) %>% 
+  filter(between(location_lat, min(sea$lat), max(sea$lat)) &
+           between(location_long, min(sea$lon), max(sea$lon))) %>% 
+  group_by(individual_local_identifier, unique_hour) %>% 
+  slice(1)
+
+sf_use_s2(FALSE)
+
+region <- world %>% 
+  st_crop(xmin = min(sea$lon) - 0.1, xmax = max(sea$lon) + 0.1, ymin = min(sea$lat) - 0.12, ymax = max(sea$lat) + 0.12)
+
+sea_name <- ifelse(max(sea$lat) > 60, "Baltic", "Mediterranean")
+
+#reduce res of wind
+low_res_wind <- sea %>% 
+  mutate(lon_lr = round(lon),
+         lat_lr = round(lat)) %>% 
+  group_by(unique_hour, lat_lr, lon_lr) %>% 
+  slice(1)
+
+for(i in unique(sea$unique_hour)){
+  
+  plot <- ggplot() +
+    geom_tile(data = sea %>% filter(unique_hour == i), aes(x = lon, y = lat, fill = delta_t)) +
+    geom_sf(data = region, fill = "gray85", col = "gray65", lwd = .6) +
+    geom_segment(data = low_res_wind %>% filter(unique_hour == i), 
+                 aes(x = lon, xend = lon+u10/10, y = lat, 
+                     yend = lat+v10/10), arrow = arrow(length = unit(0.12, "cm")), linewidth = 0.4, col = "black") +
+    geom_point(data = gps_m %>%  filter(unique_hour == i), aes(x = location_long, y = location_lat), 
+               size = 5, fill = "black", color = "white", shape = 21) +
+    coord_sf(xlim = range(sea$lon), ylim =  range(sea$lat)) +
+    scale_fill_gradientn(colors = oce::oceColorsPalette(50), limits = c(-5.5,8),  #the limit for baltic sea: c(-5,7); for the Med: c(-5:8)
+                         na.value = "white", name = expression(Delta*" T (°c)")) +
+    ggspatial::annotation_scale(
+      location = "bl",
+      width_hint = 0.12,
+      pad_x = unit(1.4, "cm"), #adjust distance from margins
+      pad_y = unit(0.8, "cm"),
+      bar_cols = c("black", "white"),
+      text_family = "ArcherPro Book",
+      text_cex = 1,
+      text_col = "black") +
+    ggspatial::annotation_north_arrow(
+      location = "bl", which_north = "true",
+      pad_x = unit(1.2, "cm"), 
+      pad_y = unit(1.2, "cm"), 
+      style = north_arrow_fancy_orienteering(line_col = "black", line_width = 1.3)) +
+    theme_void() +
+    theme(plot.title = element_text(size = 18, face="italic"),
+          axis.text = element_text(size = 12, colour = 1),
+          legend.text = element_text(size = 10, colour = 1), 
+          legend.title = element_text(size = 12, colour = 1),
+          legend.position = c(.925,.2),
+          legend.key.width = unit(0.5, "cm"),
+          legend.background = element_rect(colour = "white", fill = "white"))+
+    labs(x = NULL, y = NULL, title = sea %>%  filter(unique_hour == i) %>% .$date_time %>% .[1] %>% paste0(" UTC"))
+  
+  ggsave(plot = plot, filename = paste0(output_path, sea_name,"_", i, ".jpeg"), 
+         height = 6.5, width = 12, dpi = 300)
+}
 
 
-
-
+#Animate in ubuntu terminal:
+#ffmpeg -framerate 10 -pattern_type glob -i "*.jpeg" output.mp4
