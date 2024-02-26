@@ -24,7 +24,6 @@ sea_df <- sea_sf %>%
 
 write.csv(sea_df, file = "/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/git_repository/R_files/HB_sea_to_annotate.csv", row.names = F)
 
-
 #open annotated files
 p950_level <- read.csv("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/git_repository/R_files/sea_annotations/HB_sea_to_annotate.csv-8533425805309564468/HB_sea_to_annotate.csv-8533425805309564468.csv") %>% 
   rename(geopotential = ECMWF.ERA5.PL.Geopotential,

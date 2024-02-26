@@ -1,16 +1,22 @@
 #Explore flight repertoire over the open sea
 #follows from S01_GPS_prep.r where I segment the data and S02_GPS_exploration.r where env annotation was done
+#this code also includes my plotting attempts for BLS8 Tokyo
+
 #Elham Nourani PhD.
 #Feb 16. 2024. Konstanz, DE
 
 
 library(tidyverse)
+library(lubridate)
 library(sf)
 library(mgcv)
 library(mapview)
 library(ggridges)
 library(viridis)
 library(hrbrthemes)
+library(rnaturalearth)
+
+wgs <- st_crs("+proj=longlat +datum=WGS84 +no_defs")
 
 # STEP 1: Open annotated gps data ---------------------------------------------------------------------------------------------
 sea_df <- readRDS("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/R_files/sea_gps_seg_ann.rds") %>% 
@@ -24,6 +30,28 @@ sea_sf <- readRDS("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de
 sf_ls <- split(sea_sf, sea_sf$local_identifier)
 
 mapview(sf_ls[[1]], zcol = "flight_clust_sm3")
+
+
+base <- world <- ne_coastline(scale = 'medium', returnclass = 'sf')
+
+#color palettes: mako is blue, magma is red
+
+# ws <- ggplot(data = base) +
+#   geom_sf(col = "gray", fill = "gray") +
+#   coord_sf(xlim = c(-10, 38), ylim = c(3, 64), expand = FALSE) +
+#   geom_point(data = sea_df, aes(x = location_long, y = location_lat, col = flight_clust_sm3)) +
+#   scale_colour_viridis(option = "magma", na.value = "white", name = "m/s", alpha = 0.7) +
+#   theme_linedraw() +
+#   scale_x_continuous(breaks = c(0,30)) +
+#   scale_y_continuous(breaks = c(10,30,50)) +
+#   theme(axis.text = element_text(size = 10, colour = 1),
+#         legend.text = element_text(size = 10, colour = 1),
+#         legend.title = element_text(size = 10, colour = 1),
+#         legend.position = "right",
+#         legend.background = element_rect(colour = NULL, fill = "white"))+
+#   labs(x = NULL, y = NULL, title = "Wind support") +
+#   facet_wrap(.~year, nrow = 1)
+
 
 # STEP 2: Open IMU metrics ---------------------------------------------------------------------------------------------
 
@@ -68,6 +96,12 @@ saveRDS(flight_ls, "/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.d
 flight_df <- readRDS("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/R_files/sea_IMU.rds") %>% 
   bind_rows()
 
+#proportion of flapping to non-flapping
+flight_df %>% 
+  group_by(round(propFlap)) %>% 
+  reframe(ratio = n()/nrow(flight_df)) #0.57
+
+
 ggplot(flight_df, aes(x = yday(timestamp), y = stdBank_nonFlap, color = individual_local_identifier)) +
   geom_point() + 
   facet_wrap(~individual_local_identifier)
@@ -76,31 +110,12 @@ ggplot(flight_df, aes(x = yday(timestamp), y = stdBank_nonFlap, color = individu
 flight_df <- flight_df %>% 
   mutate(lat_region = factor(ifelse(location_lat_closest_gps > 50, "Baltic", "Mediterranean"), levels = c("Mediterranean","Baltic")))
 
-ggplot(flight_df, aes(x = propFlap, y = lat_region, fill = ..x..)) +
-  geom_density_ridges_gradient(scale = 3, rel_min_height = 0.01) +
-  scale_fill_viridis(name = "Temp. [F]", option = "C") +
-  labs(title = 'Temperatures in Lincoln NE in 2016') +
-  theme_ipsum() +
-  theme(
-    legend.position="none",
-    panel.spacing = unit(0.1, "lines"),
-    strip.text.x = element_text(size = 8)
-  )
-
-X11(width = 7, height = 6)
-ggplot(flight_df, aes(x = propFlap, y = lat_region, color = lat_region)) + 
-  stat_density_ridges(jittered_points = TRUE, rel_min_height = .01,
-                      point_shape = "|", point_size = 1, point_alpha = 0.8, size = 0.2,
-                      calc_ecdf = F, panel_scaling = F, alpha = 0.5,
-                      scale = 1.5) +
-  labs(y = "", x = "Proportion of flapping") +
-  theme_minimal() +
-  theme(legend.text=element_text(size = 7),
-        legend.position = "none")
-
-
-
-
+#proportion of circular soaring out of all non-flapping flights
+non_flap <- flight_df %>% 
+  filter(propFlap < 0.6) %>% 
+  mutate(soar_tf = if_else(between(netHeadChange, -45, 45), 0, 1)) #%>% 
+#group_by(soar_tf) %>% 
+#reframe(ratio = n()/nrow(non_flap)) 
 
 custom_colors <- c("darkviolet", "dodgerblue2")
 
@@ -126,65 +141,152 @@ ggsave(plot = prop_flap,
        filename = "/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/conferences/BLS8_tokyo_2023/presentation_prep/figs/prop_flap_sea.jpeg", 
        height = 7, width = 7, dpi = 300)
 
-# ggplot(flight_df, aes(x = propFlap, color = lat_region)) +
-#   geom_density(lwd = 1.2, linetype = 1) + 
-#   geom_density(alpha = 0.7) + 
-#   scale_fill_manual(values = cols)
-
-
+#--------------
 X11(width = 7, height = 7)
-prop_flap <- ggplot(flight_df, aes(x = numCircles, y = lat_region, color = lat_region, fill = lat_region)) + 
+numcircl <- ggplot(non_flap, aes(x = numCircles, y = lat_region, color = lat_region, fill = lat_region)) + 
   stat_density_ridges(jittered_points = F, rel_min_height = .01,
                       point_shape = "|", point_size = 3, point_alpha = 0.8, size = 1.5,
                       calc_ecdf = FALSE, panel_scaling = FALSE, alpha = 0.2,
                       scale = 1.5) +
-  labs(y = "", x = "Proportion of flapping") +
+  labs(y = "", x = "N of circles (in 8 seconds)") +
   scale_color_manual(values = custom_colors, guide = FALSE) +
   scale_fill_manual(values = custom_colors, guide = FALSE) +
   coord_cartesian(ylim = c(1.5,3)) +
+  xlim(c(-.3, 2.7)) +
   theme_classic() +
   theme(legend.text = element_text(size = 7),
         legend.position = "none",
         axis.text = element_text(size = 20),
         axis.title = element_text(size = 20, margin = margin(t = 15)),  # Adjust the top margin for space
-        axis.title.x = element_text(margin = margin(t = 20))) 
+        axis.title.x = element_text(margin = margin(t = 20)))
+
+ggsave(plot = numcircl, 
+       filename = "/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/conferences/BLS8_tokyo_2023/presentation_prep/figs/numcircl.jpeg", 
+       height = 7, width = 7, dpi = 300)
+
+# --------------
+#std bank angle
+X11(width = 8, height = 7)
+stdBank <- ggplot(non_flap, aes(x = stdBank, y = lat_region, color = lat_region, fill = lat_region)) + 
+  stat_density_ridges(jittered_points = F, rel_min_height = .01,
+                      point_shape = "|", point_size = 3, point_alpha = 0.8, size = 1.5,
+                      calc_ecdf = FALSE, panel_scaling = FALSE, alpha = 0.2,
+                      scale = 1.5) +
+  labs(y = "", x = "Std bank angle (deg)") +
+  scale_color_manual(values = custom_colors, guide = FALSE) +
+  scale_fill_manual(values = custom_colors, guide = FALSE) +
+  coord_cartesian(ylim = c(1.5,3)) +
+  #xlim(c(-360, 360)) +
+  #xlim(-0.1, 1.5) +
+  theme_classic() +
+  theme(legend.text = element_text(size = 7),
+        legend.position = "none",
+        axis.text = element_text(size = 20),
+        axis.title = element_text(size = 20, margin = margin(t = 15)),  # Adjust the top margin for space
+        axis.title.x = element_text(margin = margin(t = 20)))
+
+ggsave(plot = stdBank, 
+       filename = "/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/conferences/BLS8_tokyo_2023/presentation_prep/figs/stdbank.jpeg", 
+       height = 8, width = 9, dpi = 300)
+
+
+# --------------
+#std body tilt
+X11(width = 8, height = 7)
+stdTilt <- ggplot(non_flap, aes(x = stdTilt, y = lat_region, color = lat_region, fill = lat_region)) + 
+  stat_density_ridges(jittered_points = F, rel_min_height = .01,
+                      point_shape = "|", point_size = 3, point_alpha = 0.8, size = 1.5,
+                      calc_ecdf = FALSE, panel_scaling = FALSE, alpha = 0.2,
+                      scale = 1.5) +
+  labs(y = "", x = "Std body tilt (deg)") +
+  scale_color_manual(values = custom_colors, guide = FALSE) +
+  scale_fill_manual(values = custom_colors, guide = FALSE) +
+  coord_cartesian(ylim = c(1.5,3)) +
+  #xlim(c(-360, 360)) +
+  #xlim(-0.1, 1.5) +
+  theme_classic() +
+  theme(legend.text = element_text(size = 7),
+        legend.position = "none",
+        axis.text = element_text(size = 20),
+        axis.title = element_text(size = 20, margin = margin(t = 15)),  # Adjust the top margin for space
+        axis.title.x = element_text(margin = margin(t = 20)))
+
+ggsave(plot = stdTilt, 
+       filename = "/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/conferences/BLS8_tokyo_2023/presentation_prep/figs/stdtilt.jpeg", 
+       height = 8, width = 9, dpi = 300)
+
+
+### MAKE A MAP of proportion of flapping for the whole migration ####################
+
+#open IMU-matched with GPS data... as of Feb 24: Pritish has deleted many of the files, so I only have 7 to work with
+all_flight_df <- list.files("/home/mahle68/Desktop/matched_imu_gps_dec17/matched_gps_acc/Flight metrics/",
+                            patter = ".csv", full.names = T) %>% 
+  lapply(read.csv) %>% 
+  bind_rows() %>% 
+  mutate(dmyr = dmy(str_sub(t_quat, 1,12)),  #convert the day-month-year to POSIXct
+         timestamp = as.POSIXct(paste0(dmyr, " ", str_sub(t_quat, 13, 21)), tz= "UTC")) 
+
+
+#ss <- all_flight_df %>% 
+#  st_as_sf(coords = c("lon", "lat"), crs = "+proj=longlat +datum=WGS84 +no_defs")
+
+world <- st_read("/home/mahle68/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/GIS_files/continent_shapefile/World_Continents.shp") %>% 
+  st_crop(xmin = -17, xmax = 43, ymin = -35.6, ymax = 67) %>%
+  st_union()
+
+#create a rectangle to be the oceans
+Polycoords <- data.frame(long = c(-17,43),
+                         lat = c(-35.6,67))
+
+pol <- st_polygon(
+  list(
+    cbind(
+      Polycoords$lon[c(1,2,2,1,1)], 
+      Polycoords$lat[c(1,1,2,2,1)])
+  )
+) %>% 
+  st_sfc(crs = wgs)
+
+#the original code is in migration_map.R
+#make a smaller version with the soaring track for ind D329_013
+
+data <- sea_sf <- readRDS("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/R_files/sea_gps_seg_ann.rds") %>% 
+  
+
+ png("/home/enourani/ownCloud/Work/Projects/HB_ontogeny_eobs/git_repository/figs/migration_map.png", res = 300, units = "in", height = 10, width = 8)
+ ggplot() +
+   geom_sf(data = pol, fill = "powderblue", col = "powderblue") +
+   geom_sf(data = world, fill = "white", col = "white") +
+   geom_path(data = data, aes(x = location_long, y = location_lat, group = tag_local_identifier), linewidth = .5, lineend = "round", color = "#df4035") +
+   theme_void()
+ dev.off()
 
 
 
-# ---------------------------------------------------------------------------------------------------------------------------------------------------
 
+X11(width = 13, height = 15)
+(flappiong_map <- ggplot()+
+    geom_sf(data = pol, fill = "powderblue", col = "powderblue") +
+    geom_sf(data = world, fill = "white", col = "white") +
+    coord_sf(xlim = c(-17, 38), ylim = c(2, 65), expand = FALSE) +
+    geom_path(data = all_flight_df, aes(x = location_long_closest_gps, y = location_lat_closest_gps, col = propFlap), 
+              lwd = 3, lineend = "round") +
+    scale_colour_viridis(option = "cividis", na.value = "white", direction = -1,
+                         name = "Proportion\nof flapping", alpha = 0.7) +
+    theme_void() +
+    scale_x_continuous(breaks = c(0,20)) +
+    scale_y_continuous(breaks = c(20,40,60)) +
+    theme(axis.text = element_text(size = 16, colour = 1),
+          legend.text = element_text(size = 16, colour = 1), 
+          legend.title = element_text(size = 20, colour = 1, margin = margin(b = 10)),
+          legend.position = c(.92,.10),
+          legend.key.width = unit(1, "cm"),
+          legend.key.height = unit(0.7, "cm"),
+          legend.background = element_rect(colour = "white", fill = "white")) + 
+          labs(x = NULL, y = NULL, title = "")
+)
 
+ggsave(plot = flappiong_map, 
+       filename = "/home/mahle68/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/conferences/BLS8_tokyo_2023/presentation_prep/figs/flapping_map.png", 
+       height = 15, width = 13, dpi = 300)
 
-ggplot(sea_sf, aes(x = local_identifier, fill = flight_clust_sm3)) +
-  geom_bar()
-
-ggplot(sea_ann, aes(x = flight_clust_sm3, y = wind_speed_950)) +
-  geom_boxplot() +
-  theme_linedraw()
-
-ggplot(sea_ann, aes(x = flight_clust_sm3, y = delta_t)) +
-  geom_boxplot() +
-  theme_linedraw()
-
-ggplot(sea_ann, aes(x = flight_clust_sm3, y = wind_speed_10m)) +
-  geom_boxplot() +
-  theme_linedraw()
-
-#proportion of each flight type
-sea_sf %>% 
-  group_by(flight_clust_sm3) %>% 
-  reframe(ratio = n()/nrow(sea_sf))
-
-
-# STEP 4: modeling soaring OR flight type as a function of env variables  -----------------------------------------------------------------------------------------------------------------
-
-sea_df <- sea_sf %>% 
-  mutate(location_lat = st_coordinates(.)[,2],
-         location_long = st_coordinates(.)[,1]) %>% 
-  st_drop_geometry() %>% 
-  na.omit(flight_clust_sm3)
-
-#multinomial gam
-m <- gam(flight_clust_sm3 ~ scale(wind_speed_950) + scale(delta_t) +
-           s(location_lat, location_long),
-         family = multinom(K = 5), data = sea_df) #k = 1+unique(sea_df$flight_clust_sm3)
