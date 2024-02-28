@@ -119,16 +119,17 @@ non_flap <- flight_df %>%
 
 custom_colors <- c("darkviolet", "dodgerblue2")
 
-X11(width = 7, height = 7)
+X11(width = 8, height = 8)
 prop_flap <- ggplot(flight_df, aes(x = propFlap, y = lat_region, color = lat_region, fill = lat_region)) + 
   stat_density_ridges(jittered_points = F, rel_min_height = .01,
                       point_shape = "|", point_size = 3, point_alpha = 0.8, size = 1.5,
-                      calc_ecdf = FALSE, panel_scaling = FALSE, alpha = 0.2,
+                      calc_ecdf = FALSE, panel_scaling = FALSE, alpha = 0.2, quantile_lines = TRUE,
                       scale = 1.5) +
   labs(y = "", x = "Proportion of flapping") +
   scale_color_manual(values = custom_colors, guide = FALSE) +
   scale_fill_manual(values = custom_colors, guide = FALSE) +
   coord_cartesian(ylim = c(1.5,3)) +
+  #xlim(0,1) +
   theme_classic() +
   theme(legend.text = element_text(size = 7),
         legend.position = "none",
@@ -139,20 +140,20 @@ prop_flap <- ggplot(flight_df, aes(x = propFlap, y = lat_region, color = lat_reg
 
 ggsave(plot = prop_flap, 
        filename = "/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/conferences/BLS8_tokyo_2023/presentation_prep/figs/prop_flap_sea.jpeg", 
-       height = 7, width = 7, dpi = 300)
+       height = 8, width = 8, dpi = 300)
 
 #--------------
-X11(width = 7, height = 7)
-numcircl <- ggplot(non_flap, aes(x = numCircles, y = lat_region, color = lat_region, fill = lat_region)) + 
+X11(width = 8, height = 8)
+numcircl <- ggplot(non_flap, aes(x = netHeadChange, y = lat_region, color = lat_region, fill = lat_region)) + 
   stat_density_ridges(jittered_points = F, rel_min_height = .01,
                       point_shape = "|", point_size = 3, point_alpha = 0.8, size = 1.5,
-                      calc_ecdf = FALSE, panel_scaling = FALSE, alpha = 0.2,
+                      calc_ecdf = FALSE, panel_scaling = FALSE, alpha = 0.2, quantile_lines = TRUE,
                       scale = 1.5) +
   labs(y = "", x = "N of circles (in 8 seconds)") +
   scale_color_manual(values = custom_colors, guide = FALSE) +
   scale_fill_manual(values = custom_colors, guide = FALSE) +
   coord_cartesian(ylim = c(1.5,3)) +
-  xlim(c(-.3, 2.7)) +
+  #xlim(c(-30, 12)) +
   theme_classic() +
   theme(legend.text = element_text(size = 7),
         legend.position = "none",
@@ -162,7 +163,34 @@ numcircl <- ggplot(non_flap, aes(x = numCircles, y = lat_region, color = lat_reg
 
 ggsave(plot = numcircl, 
        filename = "/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/conferences/BLS8_tokyo_2023/presentation_prep/figs/numcircl.jpeg", 
-       height = 7, width = 7, dpi = 300)
+       height = 8, width = 8, dpi = 300)
+
+## explore the proportion of circling vs other passive soaring
+non_flap_soaring <- non_flap %>% 
+  filter(meanTilt >= 0) #only upward movement
+
+numcircl <- ggplot(non_flap_soaring, aes(x = numCircles, y = lat_region, color = lat_region, fill = lat_region)) + 
+  stat_density_ridges(jittered_points = F, rel_min_height = .01,
+                      point_shape = "|", point_size = 3, point_alpha = 0.8, size = 1.5,
+                      calc_ecdf = FALSE, panel_scaling = FALSE, alpha = 0.2, quantile_lines = TRUE,
+                      scale = 1.5) +
+  labs(y = "", x = "N of circles (in 8 seconds)") +
+  scale_color_manual(values = custom_colors, guide = FALSE) +
+  scale_fill_manual(values = custom_colors, guide = FALSE) +
+  coord_cartesian(ylim = c(1.5,3)) +
+  xlim(c(-0.08, 1)) +
+  theme_classic() +
+  theme(legend.text = element_text(size = 7),
+        legend.position = "none",
+        axis.text = element_text(size = 20),
+        axis.title = element_text(size = 20, margin = margin(t = 15)),  # Adjust the top margin for space
+        axis.title.x = element_text(margin = margin(t = 20)))
+
+ggsave(plot = numcircl, 
+       filename = "/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/conferences/BLS8_tokyo_2023/presentation_prep/figs/numcircl_when_passive.png", 
+       height = 8, width = 9, dpi = 300)
+
+
 
 # --------------
 #std bank angle
@@ -170,7 +198,7 @@ X11(width = 8, height = 7)
 stdBank <- ggplot(non_flap, aes(x = stdBank, y = lat_region, color = lat_region, fill = lat_region)) + 
   stat_density_ridges(jittered_points = F, rel_min_height = .01,
                       point_shape = "|", point_size = 3, point_alpha = 0.8, size = 1.5,
-                      calc_ecdf = FALSE, panel_scaling = FALSE, alpha = 0.2,
+                      calc_ecdf = FALSE, panel_scaling = FALSE, alpha = 0.2, quantile_lines = TRUE,
                       scale = 1.5) +
   labs(y = "", x = "Std bank angle (deg)") +
   scale_color_manual(values = custom_colors, guide = FALSE) +
@@ -196,7 +224,7 @@ X11(width = 8, height = 7)
 stdTilt <- ggplot(non_flap, aes(x = stdTilt, y = lat_region, color = lat_region, fill = lat_region)) + 
   stat_density_ridges(jittered_points = F, rel_min_height = .01,
                       point_shape = "|", point_size = 3, point_alpha = 0.8, size = 1.5,
-                      calc_ecdf = FALSE, panel_scaling = FALSE, alpha = 0.2,
+                      calc_ecdf = FALSE, panel_scaling = FALSE, alpha = 0.2, quantile_lines = TRUE,
                       scale = 1.5) +
   labs(y = "", x = "Std body tilt (deg)") +
   scale_color_manual(values = custom_colors, guide = FALSE) +
@@ -230,7 +258,7 @@ all_flight_df <- list.files("/home/mahle68/Desktop/matched_imu_gps_dec17/matched
 #ss <- all_flight_df %>% 
 #  st_as_sf(coords = c("lon", "lat"), crs = "+proj=longlat +datum=WGS84 +no_defs")
 
-world <- st_read("/home/mahle68/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/GIS_files/continent_shapefile/World_Continents.shp") %>% 
+world <- st_read("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/GIS_files/continent_shapefile/World_Continents.shp") %>% 
   st_crop(xmin = -17, xmax = 43, ymin = -35.6, ymax = 67) %>%
   st_union()
 
@@ -248,21 +276,8 @@ pol <- st_polygon(
   st_sfc(crs = wgs)
 
 #the original code is in migration_map.R
-#make a smaller version with the soaring track for ind D329_013
-
-data <- sea_sf <- readRDS("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/R_files/sea_gps_seg_ann.rds") %>% 
+data <-readRDS("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/R_files/sea_gps_seg_ann.rds")
   
-
- png("/home/enourani/ownCloud/Work/Projects/HB_ontogeny_eobs/git_repository/figs/migration_map.png", res = 300, units = "in", height = 10, width = 8)
- ggplot() +
-   geom_sf(data = pol, fill = "powderblue", col = "powderblue") +
-   geom_sf(data = world, fill = "white", col = "white") +
-   geom_path(data = data, aes(x = location_long, y = location_lat, group = tag_local_identifier), linewidth = .5, lineend = "round", color = "#df4035") +
-   theme_void()
- dev.off()
-
-
-
 
 X11(width = 13, height = 15)
 (flappiong_map <- ggplot()+
@@ -289,4 +304,46 @@ X11(width = 13, height = 15)
 ggsave(plot = flappiong_map, 
        filename = "/home/mahle68/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/conferences/BLS8_tokyo_2023/presentation_prep/figs/flapping_map.png", 
        height = 15, width = 13, dpi = 300)
+
+################## zoom in on the circling flight bouts ##############
+
+#med sea: ind D324_510
+data <-readRDS("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/R_files/sea_gps_seg_ann.rds") %>% 
+  filter(local_identifier == "D324_510") %>% 
+  mutate(location_lat = st_coordinates(.)[,2],
+         location_long = st_coordinates(.)[,1]) 
+
+circling <- ggplot() +
+  geom_sf(data = pol, fill = "powderblue", col = "powderblue") +
+  #geom_sf(data = world, fill = "white", col = "white") +
+  geom_path(data = data, aes(x = location_long, y = location_lat, group = tag_local_identifier), linewidth = .5, 
+            lineend = "round", color = "#df4035") +
+  xlim(c(20.755, 20.77)) +
+  ylim(c(37.13, 37.14)) +
+  labs(y = "Latitude", x = "Longitude") +
+  theme_classic()
+
+ggsave(plot = circling, 
+       filename = "/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/conferences/BLS8_tokyo_2023/presentation_prep/figs/circling_map_med.png", 
+       height = 6.3, width = 7.5, dpi = 300)
+
+#baltic sea D321_349
+data_b <-readRDS("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/R_files/sea_gps_seg_ann.rds") %>% 
+  filter(local_identifier == "D321_349") %>% 
+  mutate(location_lat = st_coordinates(.)[,2],
+         location_long = st_coordinates(.)[,1])
+
+circling_b <- ggplot() +
+  geom_sf(data = pol, fill = "powderblue", col = "powderblue") +
+  #geom_sf(data = world, fill = "white", col = "white") +
+  geom_path(data = data_b, aes(x = location_long, y = location_lat, group = tag_local_identifier), linewidth = .5, 
+            lineend = "round", color = "#df4035") +
+  xlim(c(23.68, 23.78)) +
+  ylim(c(59.4, 59.44)) +
+  labs(y = "Latitude", x = "Longitude") +
+  theme_classic()
+
+ggsave(plot = circling_b, 
+       filename = "/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/conferences/BLS8_tokyo_2023/presentation_prep/figs/circling_map_baltic.png", 
+       height = 6.3, width = 7.5, dpi = 300)
 

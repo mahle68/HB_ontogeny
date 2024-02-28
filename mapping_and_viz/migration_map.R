@@ -29,7 +29,7 @@ data_df <- data %>%
   dplyr::select(c("timestamp", "height_above_ellipsoid", "location_lat", "location_long", "sensor_type", "tag_local_identifier", "trackId", "sex", "ring_id", "taxon_canonical_name"))
 
 write.csv(data_df, "/home/enourani/ownCloud/Work/Projects/HB_ontogeny_eobs/collabs/Patrik_wintering_range_23/data_to_send/HB_gps_Jan23.csv")
-  
+
 #hourly subset using moveVis
 mv_hr <- align_move(data, res = 180, unit = "mins")
 
@@ -97,3 +97,18 @@ ggplot() +
   geom_path(data = data, aes(x = location_long, y = location_lat, group = tag_local_identifier), linewidth = .5, lineend = "round", color = "#df4035") +
   theme_void()
 dev.off()
+
+
+#################### repeat the above map, but with coordinates. For BLS8 ################
+
+data <- readRDS("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/data/all_gps_nov_6_23.rds") %>% 
+  group_by(individual_local_identifier, yday(timestamp), hour(timestamp)) %>% #subset to hourly
+  slice(1) %>% 
+  ungroup() %>% 
+  arrange(individual_local_identifier, timestamp)
+
+ggplot() +
+  geom_sf(data = pol, fill = "powderblue", col = "powderblue") +
+  geom_sf(data = world, fill = "white", col = "white") +
+  geom_path(data = data, aes(x = location_long, y = location_lat, group = tag_local_identifier), linewidth = .5, lineend = "round", color = "#df4035") +
+  theme_void()

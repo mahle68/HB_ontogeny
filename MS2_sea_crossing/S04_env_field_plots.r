@@ -2,7 +2,6 @@
 #Elham Nourani PhD.
 #Feb 20. 2024. Konstanz, DE
 
-
 library(tidyverse)
 library(lubridate)
 library(sf)
@@ -17,7 +16,6 @@ setwd("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projec
 
 # STEP 1: extract dates and geographic extent ----------------------------------------------------------------------------#####
 sea_ann <- readRDS("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/R_files/sea_gps_seg_ann.rds")
-
 
 dates <- sea_ann %>% 
   mutate(location_lat = st_coordinates(.)[,2],
