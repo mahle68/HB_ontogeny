@@ -367,7 +367,7 @@ for(i in unique(sea$unique_hour)){
 
 #Animate in ubuntu terminal:
 #ffmpeg -framerate 10 -pattern_type glob -i "*.jpeg" output.mp4
-
+#faster version: ffmpeg -framerate 15 -pattern_type glob -i "*.jpeg" baltic_fast.mp4
 
 # STEP 5: more intentional - Med ----------------------------------------------------------------------------#####
 
@@ -456,3 +456,4 @@ for(i in unique(sea$unique_hour)){
 
 #Animate in ubuntu terminal:
 #ffmpeg -framerate 10 -pattern_type glob -i "*.jpeg" output.mp4
+#for faster version: ffmpeg -framerate 18 -pattern_type glob -i "*.jpeg" fast_video.mp4
