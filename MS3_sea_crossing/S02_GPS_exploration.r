@@ -15,7 +15,8 @@ library(units)
 source("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/functions.R")
 
 # STEP 0: Open segmented data -------------------------------------------------------------------------------------------------------------------------------------------------------
-sea_sf <- list.files("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/git_repository/R_files/GPS_seg_Aug23/classified_data", 
+sea_sf <- list.files("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/
+                     HB_ontogeny_eobs/git_repository/R_files/GPS_seg_Aug23/classified_data", 
                        full.names = T) %>% 
   map(readRDS) %>% 
   bind_rows() %>% 

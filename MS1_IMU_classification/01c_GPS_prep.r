@@ -11,6 +11,7 @@ library(lwgeom)
 library(rgl)
 library(parallel)
 library(viridis)
+library(move2)
 
 wgs <- st_crs("+proj=longlat +datum=WGS84 +no_defs")
 setwd("/home/mahle68/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/")
@@ -299,7 +300,7 @@ lapply(inds_ls, function(ind){
 
 Sys.time() - st_t # 8 hours for 31 individuals
 
-stopCluster(mycl) 
+stopCluster(mycl)
 
 #STEP 3: prepare for Movebank annotations -----------------------------
 #open all the annotated GPS files
