@@ -1,3 +1,6 @@
+#script for calculating Euler angles from quaterions provided by eobs.
+#Apr. 08.2024. Elham Nourani, PhD.
+
 
 library(tidyverse)
 
@@ -45,10 +48,8 @@ yaw <- atan2(2 * (qw * qz + qx * qy), qw^2 + qx^2 - qy^2 - qz^2)
 
 
 
-########## playing around #################################
+########## playing around with various packages #################################
 library(orientlib) #devtools::install_github("dmurdoch/orientlib")
-
-
 
 #open sample quat data
 sample_quat <- read.csv("/home/mahle68/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/R_files/matched_GPS_IMU/matched_gps_orientation/D163_696_quat_mag_w_gps.csv") %>% 
@@ -69,27 +70,9 @@ rotation_matrix <- quat2rot(one_quat)
 
 euler_anlges <- rot2eul(rotation_matrix)
 
-
 # Extract bank angle from rotation matrix
 bank_angle <- atan2(rotation_matrix[2, 1], rotation_matrix[1, 1]) * (180 / pi)  # Convert radians to degrees
 
 # Print the bank angle
 print(bank_angle)
-
-
-#############################################
-###code from chatgpt
-quat2 <- quaternion(c(1, 0, 0, 0))  # Example quaternion (unit quaternion for no rotation)
-
-# Convert quaternion to rotation matrix
-rotation_matrix <- as.matrix(quat2)
-
-# Extract bank angle from rotation matrix
-bank_angle <- atan2(rotation_matrix[2, 1], rotation_matrix[1, 1]) * (180 / pi)  # Convert radians to degrees
-
-# Print the bank angle
-print(bank_angle)
-
-
-
 
