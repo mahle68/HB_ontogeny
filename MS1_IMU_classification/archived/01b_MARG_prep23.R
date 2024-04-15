@@ -1,5 +1,4 @@
-#This code downloads honey buzzard IMU data, transforms the units, and calculates ACC related features. Then it finds the neares GPS point to the IMU recordings
-#the focus is on two individuals at the exploration phase: 
+#This code downloads honey buzzard IMU data, transforms the units of ACC and processes the quaternion data. Then it finds the nearest GPS point to the IMU recordings
 #Elham Nourani PhD.
 #Feb 15. 2023. Konstanz, DE.
 
