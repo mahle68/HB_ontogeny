@@ -14,7 +14,7 @@ library(viridis)
 library(move2)
 
 wgs <- st_crs("+proj=longlat +datum=WGS84 +no_defs")
-setwd("/home/mahle68/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/")
+setwd("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/")
 
 #STEP 1: download gps data for all individuals (whole study) -----------------------------
 
@@ -26,7 +26,7 @@ movebank_retrieve(study_id = 2201086728, entity_type= "tag_type")
 gps <- movebank_retrieve(study_id = 2201086728, sensor_type_id = "gps",   #download data for all individuals 
                          entity_type = "event",  attributes = "all")
 
-saveRDS(gps, file = "data/all_gps_nov_6_23.rds")
+saveRDS(gps, file = "data/all_gps_apr15_24.rds")
 
 #STEP 2: segmentation based on 1 Hz GPS -----------------------------
 
@@ -292,7 +292,7 @@ lapply(inds_ls, function(ind){
       #rbind all bursts and save classified and smoothed dataframe per individual
       bind_rows()
     
-    saveRDS(bursts_smooth, file = paste0("R_files/GPS_seg_Nov23/animal_", 
+    saveRDS(bursts_smooth, file = paste0("R_files/gps_seg_apr24/animal_", 
                                          unique(ind$individual_local_identifier), "_classified_bursts.rds")) #this is an sf file
     gc()
   } 
@@ -305,7 +305,7 @@ stopCluster(mycl)
 #STEP 3: prepare for Movebank annotations -----------------------------
 #open all the annotated GPS files
 
-gps_seg <- list.files("R_files/GPS_seg_Nov23/", pattern = "bursts.rds", full.names = T) %>% #these are sf objects!!
+gps_seg <- list.files("R_files/gps_seg_apr24/", pattern = "bursts.rds", full.names = T) %>% #these are sf objects!!
   map(readRDS) %>% 
   bind_rows() %>% 
   mutate(row_id = row_number(), #assign a row id to be able to cbind the annotated data with the original data later on
@@ -329,7 +329,7 @@ lapply(c(1:6), function(x){
     select("location-long","location-lat", "timestamp", "row_id") %>% #only keep the columns that env-data needs, and row-id to merge the annotations with the original data 
     as.data.frame()
   
-  write.csv(data, file = paste0("R_files/all_gps_seg_Nov23_", x, ".csv"))
+  write.csv(data, file = paste0("R_files/all_gps_seg_apr24_", x, ".csv"))
 })
 
 #STEP 4: fuse annotated w_star and the rest of the dataset -----------------------------

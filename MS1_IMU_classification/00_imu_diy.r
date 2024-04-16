@@ -4,7 +4,7 @@
 
 library(tidyverse)
 
-# STEP 1.1: write some functions #####
+# STEP 1: write some functions #####
 
 #order of quaternion values in eobs format: w,x,y,z
 
@@ -23,6 +23,17 @@ process_quaternions <- function(quaternion_string, func) {
     str_c(collapse = " ")
 }
 
+process_quaternions <- function(quaternion_string, func) {
+  #define a function to split up a vector of multiple quaternions into a list with each element as a vector of 4 floats (eobs specific)
+  vector_to_quat_ls <- function(x) {
+    n <- length(x)
+    split(x, rep(1:(n/4), each = 4))
+  }
+  
+  quaternions <- strsplit(quaternion_string, " ")[[1]]
+  result <- unlist(lapply(vector_to_quat_ls(as.numeric(quaternions)), func))
+  paste(result, collapse = " ")
+}
 
 #define a function for converting raw quaternion values mathematically from integers to floats (based on eobs manual) 
 .convertEobs <- function(x){
@@ -98,7 +109,7 @@ get.yaw <- function(x, type=c("eobs", "quaternion")) {
   return(yawAngle)
 }
 
-# STEP 2.1: apply to eobs data #####
+# STEP 2: apply to eobs data #####
 #open sample data for one individual
 sample_data <- read.csv("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/R_files/matched_GPS_IMU/matched_gps_orientation/D163_696_quat_mag_w_gps.csv")
 

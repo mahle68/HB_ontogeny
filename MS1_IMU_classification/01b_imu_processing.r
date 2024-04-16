@@ -17,14 +17,10 @@ setwd("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projec
 #source functions for wind direction
 source("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/lap_paper/AnEnvIPaper/data_prep/EnvironmentalData/airspeed_windsupport_crosswind.R")
 
-birds_23 <- c("D329_012", "D329_013", "D329_014", "D329_015", "D326_193", "D326_192")
-
 #STEP 1: download all IMU data -------------------------------------------------
 
 creds <- movebank_store_credentials(username = "mahle68", rstudioapi::askForPassword())
 HB_id <- movebank_get_study_id("European Honey Buzzard_Finland")
-
-movebank_retrieve(study_id = 2201086728, entity_type= "tag_type")
 
 mag <- movebank_retrieve(study_id = 2201086728, sensor_type_id = "magnetometer", 
                          entity_type = "event",  attributes = "all")
@@ -43,8 +39,8 @@ or <- mag %>%
 
 rm(mag,quat)
 
-saveRDS(or, "all_orientation_nov_7_23.rds")
-saveRDS(acc, "all_acceleration_nov_7_23.rds")
+saveRDS(or, "all_orientation_apr15_24.rds")
+saveRDS(acc, "all_acceleration_apr15_24.rds")
 
 #STEP 2: open segmented GPS data and create a list of dataframes (done in 01c_GPS_prep.r) -------------------------------------------------
 #this dataset already contains the annotations with w_star and wind (from 01c_GPS_prep.r). this was only used for the 2023 birds. the older birds were matched without env annotations
@@ -81,7 +77,7 @@ Sys.time()-st #2 minutes
 
 #saveRDS(acc_g, "2023_birds_acc_g_Nov23.rds")
 
-saveRDS(acc_g, "all_acceleration_g_nov_7_23.rds")
+saveRDS(acc_g, "all_acceleration_g_apr15_24.rds")
 
 #######because the mag/quaternion are stored differently than acc (n of rows is different), match with gps separately
 # STEP 4: find nearest GPS fix to each quat/mag burst -------------------------------------------------
