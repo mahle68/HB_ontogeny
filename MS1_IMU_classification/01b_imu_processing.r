@@ -9,6 +9,7 @@ library(lubridate)
 library(mapview)
 library(parallel)
 library(sf)
+library(future)
 
 wgs <- st_crs("+proj=longlat +datum=WGS84 +no_defs")
 
@@ -42,18 +43,8 @@ rm(mag,quat)
 saveRDS(or, "all_orientation_apr15_24.rds")
 saveRDS(acc, "all_acceleration_apr15_24.rds")
 
-#STEP 2: open segmented GPS data and create a list of dataframes (done in 01c_GPS_prep.r) -------------------------------------------------
-#this dataset already contains the annotations with w_star and wind (from 01c_GPS_prep.r). this was only used for the 2023 birds. the older birds were matched without env annotations
-gps_ls <- readRDS("all_gps_seg_ann_Nov2023.rds") %>% 
-  rename(thermal_uplift_ms = Movebank.Thermal.Uplift..ECMWF.,
-         wind_u = ECMWF.ERA5.PL.U.Wind,
-         wind_v = ECMWF.ERA5.PL.V.Wind) %>% 
-  mutate(wind_speed_ms = sqrt(wind_u^2 + wind_v^2),
-         wind_direction_deg = wind.directionFROM(wind_u, wind_v))
 
-gps_ls <- split(gps_ls, gps_ls$individual_local_identifier)
-
-# STEP 3: convert acc units to g -------------------------------------------------
+#STEP 2: data processing: ACC (convert units to g) -------------------------------------------------
 
 #write a ftn for g conversion
 g_transform <- function(x) {
@@ -78,6 +69,44 @@ Sys.time()-st #2 minutes
 #saveRDS(acc_g, "2023_birds_acc_g_Nov23.rds")
 
 saveRDS(acc_g, "all_acceleration_g_apr15_24.rds")
+
+#STEP 3: data processing: Quaternions (calculate Euler angles) -------------------------------------------------
+
+or <- readRDS("all_orientation_apr15_24.rds")
+source("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/HB_ontogeny/MS1_IMU_classification/00_imu_diy.r")
+
+# Set the maximum size for global objects
+options(future.globals.maxSize = 1.9 * 1024^3)  # 1.9 GB
+
+#enable parallel processing
+plan(multisession)
+
+(st <- Sys.time())
+future({
+  or_angles <- or %>%
+    mutate(
+      pitch = process_quaternions(orientation_quaternions_raw, ~ get.pitch(.x, type = "eobs")),
+      yaw = process_quaternions(orientation_quaternions_raw, ~ get.yaw(.x, type = "eobs")),
+      roll = process_quaternions(orientation_quaternions_raw, ~ get.roll(.x, type = "eobs"))
+    )
+})
+Sys.time() - st
+
+
+
+
+############# old organization ##################
+#STEP 2: open segmented GPS data and create a list of dataframes (done in 01c_GPS_prep.r) -------------------------------------------------
+#this dataset already contains the annotations with w_star and wind (from 01c_GPS_prep.r). this was only used for the 2023 birds. the older birds were matched without env annotations
+gps_ls <- readRDS("all_gps_seg_ann_Nov2023.rds") %>% 
+  rename(thermal_uplift_ms = Movebank.Thermal.Uplift..ECMWF.,
+         wind_u = ECMWF.ERA5.PL.U.Wind,
+         wind_v = ECMWF.ERA5.PL.V.Wind) %>% 
+  mutate(wind_speed_ms = sqrt(wind_u^2 + wind_v^2),
+         wind_direction_deg = wind.directionFROM(wind_u, wind_v))
+
+gps_ls <- split(gps_ls, gps_ls$individual_local_identifier)
+
 
 #######because the mag/quaternion are stored differently than acc (n of rows is different), match with gps separately
 # STEP 4: find nearest GPS fix to each quat/mag burst -------------------------------------------------

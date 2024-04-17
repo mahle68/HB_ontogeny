@@ -2,38 +2,30 @@
 #Apr. 08.2024. Elham Nourani, PhD.
 
 
-library(tidyverse)
+#library(tidyverse)
 
 # STEP 1: write some functions #####
 
-#order of quaternion values in eobs format: w,x,y,z
-
-#define a function to split up a vector of multiple quaternions into a list with each element as a vector of 4 floats (eobs specific) 
-vector_to_quat_ls <- function(x) split(x, cut(seq_along(x), length(x)/4, labels = FALSE)) 
-
 #define a function to process quaternions in eobs format (eobs specific) 
-process_quaternions <- function(quaternion_string, func) {
-  strsplit(quaternion_string, " ") %>%
-    unlist() %>%
-    as.numeric() %>%
-    vector_to_quat_ls() %>%
-    map(func) %>%
-    unlist(use.names = FALSE) %>%
-    as.character() %>%
-    str_c(collapse = " ")
-}
-
-process_quaternions <- function(quaternion_string, func) {
-  #define a function to split up a vector of multiple quaternions into a list with each element as a vector of 4 floats (eobs specific)
+process_quaternions <- function(quaternion_string, ftn) {
+  # #define a function to split up a vector of multiple quaternions into a list with each element as a vector of 4 floats (eobs specific) 
   vector_to_quat_ls <- function(x) {
     n <- length(x)
     split(x, rep(1:(n/4), each = 4))
   }
   
-  quaternions <- strsplit(quaternion_string, " ")[[1]]
-  result <- unlist(lapply(vector_to_quat_ls(as.numeric(quaternions)), func))
-  paste(result, collapse = " ")
+  quaternions <- str_split(quaternion_string, " ")[[1]] %>%
+    as.numeric()
+  
+  result <- vector_to_quat_ls(quaternions) %>%
+    map(ftn) %>%
+    unlist() %>%
+    as.character()
+  
+  return(str_c(result, collapse = " "))
 }
+
+#the following functions are from Kami's IMU_conversion.r
 
 #define a function for converting raw quaternion values mathematically from integers to floats (based on eobs manual) 
 .convertEobs <- function(x){
@@ -109,14 +101,14 @@ get.yaw <- function(x, type=c("eobs", "quaternion")) {
   return(yawAngle)
 }
 
-# STEP 2: apply to eobs data #####
-#open sample data for one individual
-sample_data <- read.csv("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/R_files/matched_GPS_IMU/matched_gps_orientation/D163_696_quat_mag_w_gps.csv")
-
-#calculate pitch, roll, and yaw
-sample_data_quat <- sample_data %>%
-  mutate(
-    pitch = process_quaternions(orientation_quaternions_raw, ~ get.pitch(.x, type = "eobs")),
-    yaw = process_quaternions(orientation_quaternions_raw, ~ get.yaw(.x, type = "eobs")),
-    roll = process_quaternions(orientation_quaternions_raw, ~ get.roll(.x, type = "eobs"))
-  )
+# # STEP 2: apply to eobs data #####
+# #open sample data for one individual
+# sample_data <- read.csv("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/R_files/matched_GPS_IMU/matched_gps_orientation/D163_696_quat_mag_w_gps.csv")
+# 
+# #calculate pitch, roll, and yaw
+# sample_data_quat <- sample_data %>%
+#   mutate(
+#     pitch = process_quaternions(orientation_quaternions_raw, ~ get.pitch(.x, type = "eobs")),
+#     yaw = process_quaternions(orientation_quaternions_raw, ~ get.yaw(.x, type = "eobs")),
+#     roll = process_quaternions(orientation_quaternions_raw, ~ get.roll(.x, type = "eobs"))
+#   )
