@@ -54,7 +54,7 @@ g_transform <- function(x) {
 #extract values for each axis as a numeric vector to convert to g
 
 #make sure the values fall between -2 and 2
-#i have the same slope and intercept for all axes, so don't separate into 3 axis and just convert all raw values to g.
+#I have the same slope and intercept for all axes, so don't separate into 3 axis and just convert all raw values to g.
 
 (st <- Sys.time())
 acc_g <- acc %>%
@@ -68,31 +68,47 @@ Sys.time()-st #2 minutes
 
 #saveRDS(acc_g, "2023_birds_acc_g_Nov23.rds")
 
-saveRDS(acc_g, "all_acceleration_g_apr15_24.rds")
+saveRDS(acc_g, "all_acceleration_g_apr15_24.rds") #not yet written
 
 #STEP 3: data processing: Quaternions (calculate Euler angles) -------------------------------------------------
 
-or <- readRDS("all_orientation_apr15_24.rds")
+#source the imu conversion functions
 source("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/HB_ontogeny/MS1_IMU_classification/00_imu_diy.r")
 
-# Set the maximum size for global objects
-options(future.globals.maxSize = 1.9 * 1024^3)  # 1.9 GB
+#open orientation dataset, subset for data with high sampling frequency (this should be post-fledging, migration, and wintering data for laterality tests)
+or <- readRDS("all_orientation_apr15_24.rds") %>% 
+  group_by(individual_local_identifier) %>% 
+  arrange(timestamp, .by_group = T) %>% 
+  mutate(timelag = c(0, diff(timestamp)),  #calculate time lag 
+         imu_burst_id = cumsum(timelag > 1)) %>% #assign a unique burst ID every time timelag is larger than 1 second. The IDs will be unique only within one ind's data
+  ungroup() %>% 
+  as.data.frame() 
 
-#enable parallel processing
-plan(multisession)
+#subset or by the length of the bursts. Only keep those that are longer than 1 second
+burst_size <- or %>% 
+  group_by(individual_local_identifier, imu_burst_id) %>% 
+  summarize(burst_length = n(), #This is not very informative... because the length is not in seconds... it's better to calculate the burst duration instead
+            burst_duration = sum(timelag[-1])) %>% #the first value of timelag in each burst is a large value indicating timediff between this and the previous burst. remove it
+  ungroup()
+  
+or_hfreq <- or %>% 
+  right_join(burst_size %>% filter(burst_duration > 3)) #there are bursts with length of 0-3
 
-(st <- Sys.time())
-future({
-  or_angles <- or %>%
-    mutate(
-      pitch = process_quaternions(orientation_quaternions_raw, ~ get.pitch(.x, type = "eobs")),
-      yaw = process_quaternions(orientation_quaternions_raw, ~ get.yaw(.x, type = "eobs")),
-      roll = process_quaternions(orientation_quaternions_raw, ~ get.roll(.x, type = "eobs"))
-    )
-})
-Sys.time() - st
+rm(or);gc()
 
+#try for one individual.
+#one_ind <- or_hfreq %>% filter(individual_local_identifier == "D324_511")
+  
+(st_time <- Sys.time())
+or_angles <- or_hfreq %>%
+  mutate(
+    pitch = process_quaternions(orientation_quaternions_raw, ~ get.pitch(.x, type = "eobs")),
+    yaw = process_quaternions(orientation_quaternions_raw, ~ get.yaw(.x, type = "eobs")),
+    roll = process_quaternions(orientation_quaternions_raw, ~ get.roll(.x, type = "eobs"))
+  )
+Sys.time() - st_time
 
+saveRDS(or_angles, file = "quat_angles_apr24.rds")
 
 
 ############# old organization ##################
