@@ -9,7 +9,7 @@ library(lubridate)
 library(mapview)
 library(parallel)
 library(sf)
-library(future)
+library(circular)
 
 wgs <- st_crs("+proj=longlat +datum=WGS84 +no_defs")
 
@@ -84,7 +84,7 @@ or <- readRDS("all_orientation_apr15_24.rds") %>%
   ungroup() %>% 
   as.data.frame() 
 
-#subset or by the length of the bursts. Only keep those that are longer than 1 second
+#subset or by the length of the bursts. Only keep those that are longer than 3 second
 burst_size <- or %>% 
   group_by(individual_local_identifier, imu_burst_id) %>% 
   summarize(burst_length = n(), #This is not very informative... because the length is not in seconds... it's better to calculate the burst duration instead
@@ -96,19 +96,75 @@ or_hfreq <- or %>%
 
 rm(or);gc()
 
-#try for one individual.
-#one_ind <- or_hfreq %>% filter(individual_local_identifier == "D324_511")
-  
+#calculate pitch, roll, and yaw for the whole dataset
 (st_time <- Sys.time())
 or_angles <- or_hfreq %>%
   mutate(
     pitch = process_quaternions(orientation_quaternions_raw, ~ get.pitch(.x, type = "eobs")),
     yaw = process_quaternions(orientation_quaternions_raw, ~ get.yaw(.x, type = "eobs")),
     roll = process_quaternions(orientation_quaternions_raw, ~ get.roll(.x, type = "eobs"))
-  )
-Sys.time() - st_time
+  ) %>% 
+  #convert to degrees (make sure values are from -180 to +180)
+  mutate(across(c("roll", "pitch", "yaw"), 
+                ~ purrr::map_chr(
+                  strsplit(as.character(.x), " "),
+                  ~ as.character(unlist(.) %>% as.numeric() %>% deg()) %>% str_c(collapse = " ") #make sure the values are SIGNED
+                ),
+                .names = "{col}_deg"
+  )) %>% 
+  as.data.frame()
+Sys.time() - st_time #10 min
 
 saveRDS(or_angles, file = "quat_angles_apr24.rds")
+
+#calculate aggregate values for each second. This way I can later summarize the values for each burst, depending on the burst length of interest
+
+#calculate for each axis (roll, pitch, yaw): mean, mean_abs, max, max_abs, min, min_abs, sd, sum, sum_abs
+
+quat_summaries <- or_angles[1:10,] %>% 
+  group_by(floor_date(timestamp, "second")) %>% 
+  summarize(across(c("roll_deg", "pitch_deg", "yaw_deg")),
+            ~ purrr::map_chr(
+              strsplit(as.character(.x), " "),
+              ~ ))
+
+quat_summaries <- or_angles[1:10,] %>% 
+  group_by(floor_date(timestamp, "second")) %>% 
+  summarize(
+    across(c("pitch", "roll", "yaw"),
+           .fns = list(
+             avg = ~mean(as.numeric(unlist(str_split(.x, " ")))),
+             avg_abs = ~mean(abs(deg_vals)),
+             max = ~max(deg_vals),
+             max_abs = ~max(abs(deg_vals)),
+             min = ~min(deg_vals),
+             min_abs = ~min(abs(deg_vals)),
+             sd = ~sd(deg_vals),
+             sum = ~sum(deg_vals),
+             sum_abs = ~sum(abs(deg_vals))
+           )
+    )
+  )
+
+
+
+
+quat_summaries <- or_angles[1:10,] %>% 
+  group_by(floor_date(timestamp, "second")) %>% 
+  #mutate_at(c("pitch", "roll", "yaw"), ~str_split(.x, " ") %>% as.numeric()) %>% 
+  summarize_at(c("pitch", "roll", "yaw"),
+               #split up the character string and create one vector that includes all values across whatever many rows that make up one second
+               map(str_split(., " "), as.numeric) %>% unlist() %>% 
+                 #convert to degrees (make sure values are from -180 to +180)
+                 deg() %>% 
+                 #summarize the vector into metrics of interest
+                 mean()
+               )
+
+
+
+
+
 
 
 ############# old organization ##################
