@@ -8,7 +8,7 @@
 
 #define a function to process quaternions in eobs format (eobs specific) 
 process_quaternions <- function(quaternion_string, ftn) {
-  # #define a function to split up a vector of multiple quaternions into a list with each element as a vector of 4 floats (eobs specific) 
+  #define a function to split up a vector of multiple quaternions into a list with each element as a vector of 4 floats (eobs specific) 
   vector_to_quat_ls <- function(x) {
     n <- length(x)
     split(x, rep(1:(n/4), each = 4))
@@ -24,6 +24,7 @@ process_quaternions <- function(quaternion_string, ftn) {
   
   return(str_c(result, collapse = " "))
 }
+
 
 #the following functions are from Kami's IMU_conversion.r
 
