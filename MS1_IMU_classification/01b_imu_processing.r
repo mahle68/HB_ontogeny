@@ -123,17 +123,13 @@ saveRDS(or_angles, file = "quat_angles_apr24.rds")
 #modify the data to have one row per second
 #Useful for summarizing the quat angles for each second. This way I can later summarize the values for each burst, depending on the burst length of interest
 
-or_seconds <- or_angles[1:30,] %>% 
-  group_by(individual_local_identifier, floor_date(timestamp, "second")) %>% 
-  summarize(across(c("roll_deg", "pitch_deg", "yaw_deg")),
-          ~ paste(., collapse = " ")) %>% 
-  ungroup() #retain other important columns as well!!!!!
-  
+or_angles <- readRDS("quat_angles_apr24.rds")
 
+(st_time <- Sys.time())
 or_seconds <- or_angles%>% 
   group_by(individual_local_identifier, floor_date(timestamp, "second")) %>% 
   #create a long character string containing all values for each second
-  summarize(across(c(roll, pitch, yaw, roll_deg, pitch_deg, yaw_deg), ~paste(., collapse = "")), 
+  summarize(across(c(roll, pitch, yaw, roll_deg, pitch_deg, yaw_deg), ~paste(., collapse = " ")), 
             #retain the first value of other important columns
             across(c(study_id, individual_taxon_canonical_name, orientation_quaternions_sampling_frequency,
                      tag_local_identifier, timestamp, tag_id, imu_burst_id, burst_duration), ~head(.,1)),
@@ -141,54 +137,35 @@ or_seconds <- or_angles%>%
   ungroup() %>% #retain other important columns as well!!!!!
   as.data.frame()
 
-Sys.time() #10 hrs
+Sys.time() - st_time #10 hrs
 
 saveRDS(or_seconds, file = "quat_angles_secs_apr24.rds")
 
 
-# #calculate for each axis (roll, pitch, yaw): mean, mean_abs, max, max_abs, min, min_abs, sd, sum, sum_abs
-# 
-# quat_summaries <- or_angles[1:10,] %>% 
-#   group_by(floor_date(timestamp, "second")) %>% 
-#   summarize(across(c("roll_deg", "pitch_deg", "yaw_deg")),
-#             ~ purrr::map_chr(
-#               strsplit(as.character(.x), " "),
-#               ~ as.numeric()))
-# 
-# quat_summaries <- or_angles[1:10,] %>% 
-#   group_by(floor_date(timestamp, "second")) %>% 
-#   summarize(
-#     across(c("pitch", "roll", "yaw"),
-#            .fns = list(
-#              avg = ~mean(as.numeric(unlist(str_split(.x, " ")))),
-#              avg_abs = ~mean(abs(as.numeric(unlist(str_split(.x, " "))))),
-#              max = ~max(as.numeric(unlist(str_split(.x, " ")))),
-#              max_abs = ~max(abs(as.numeric(unlist(str_split(.x, " "))))),
-#              min = ~min(as.numeric(unlist(str_split(.x, " ")))),
-#              min_abs = ~min(abs(as.numeric(unlist(str_split(.x, " "))))),
-#              sd = ~sd(as.numeric(unlist(str_split(.x, " ")))),
-#              sum = ~sum(as.numeric(unlist(str_split(.x, " ")))),
-#              sum_abs = ~sum(abs(as.numeric(unlist(str_split(.x, " ")))))
-#            )
-#     )
-#   ) %>% 
-#   as.data.frame()
-# 
-# 
-# 
-# 
-# quat_summaries <- or_angles[1:10,] %>% 
-#   group_by(floor_date(timestamp, "second")) %>% 
-#   #mutate_at(c("pitch", "roll", "yaw"), ~str_split(.x, " ") %>% as.numeric()) %>% 
-#   summarize_at(c("pitch", "roll", "yaw"),
-#                #split up the character string and create one vector that includes all values across whatever many rows that make up one second
-#                map(str_split(., " "), as.numeric) %>% unlist() %>% 
-#                  #summarize the vector into metrics of interest
-#                  mean()
-#                )
-# 
-# 
-# 
+#For each axis (roll, pitch, yaw), calculate: mean, mean_abs, max, max_abs, min, min_abs, sd, sum, sum_abs
+
+or_seconds <- readRDS("quat_angles_secs_apr24.rds") 
+
+or_burst_summaries <- or_seconds[1:18,] %>%
+  group_by(individual_local_identifier) %>% 
+  arrange(timestamp, .by_group = T) %>% 
+  #the burst assignments are correct, but burst lengths are different depending on the year, etc. for the sake of uniformity, assign new burst ids that break up the data into 8 seconds
+  mutate(timelag = c(0, diff(timestamp)),  #calculate time lag 
+         burst_id_8sec = cumsum(timelag > 8)) %>% 
+  ungroup() %>% 
+  group_by(individual_local_identifier, burst_id_8sec) %>% #group by the 8-sec bursts to calculate the summary statistics
+  summarize(across(roll_deg, pitch_deg, yaw_deg), 
+            ~ list(daily_avg = mean, daily_max = max, daily_min = min, daily_median = median, daily_var = var,
+                   daily_quant1 = ~ quantile(.x, probs = .25) , daily_quant3 = ~ quantile(.x, probs = .75)), na.rm = T) %>% 
+  as.data.frame())
+  
+  
+  as.data.frame()
+
+
+
+
+
 
 
 ############# old organization ##################
