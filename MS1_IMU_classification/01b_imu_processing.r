@@ -105,6 +105,7 @@ or_angles <- or_hfreq %>%
     yaw = process_quaternions(orientation_quaternions_raw, ~ get.yaw(.x, type = "eobs")),
     roll = process_quaternions(orientation_quaternions_raw, ~ get.roll(.x, type = "eobs"))
   ) %>% 
+  ungroup() %>%  #make sure this doesnt mess up the next step
   #convert to degrees (make sure values are from -180 to +180)
   mutate(across(c("pitch", "yaw", "roll"), 
                 ~ purrr::map_chr(
@@ -122,15 +123,29 @@ saveRDS(or_angles, file = "quat_angles_apr24.rds")
 #modify the data to have one row per second
 #Useful for summarizing the quat angles for each second. This way I can later summarize the values for each burst, depending on the burst length of interest
 
-or_seconds <- or_angles %>% 
+or_seconds <- or_angles[1:30,] %>% 
   group_by(individual_local_identifier, floor_date(timestamp, "second")) %>% 
-  reframe(across(c("roll_deg", "pitch_deg", "yaw_deg")),
-          ~ paste(.x, collapse = " ")) %>% 
+  summarize(across(c("roll_deg", "pitch_deg", "yaw_deg")),
+          ~ paste(., collapse = " ")) %>% 
   ungroup() #retain other important columns as well!!!!!
   
 
-# 
-# 
+or_seconds <- or_angles%>% 
+  group_by(individual_local_identifier, floor_date(timestamp, "second")) %>% 
+  #create a long character string containing all values for each second
+  summarize(across(c(roll, pitch, yaw, roll_deg, pitch_deg, yaw_deg), ~paste(., collapse = "")), 
+            #retain the first value of other important columns
+            across(c(study_id, individual_taxon_canonical_name, orientation_quaternions_sampling_frequency,
+                     tag_local_identifier, timestamp, tag_id, imu_burst_id, burst_duration), ~head(.,1)),
+            .groups = "keep") %>%
+  ungroup() %>% #retain other important columns as well!!!!!
+  as.data.frame()
+
+Sys.time() #10 hrs
+
+saveRDS(or_seconds, file = "quat_angles_secs_apr24.rds")
+
+
 # #calculate for each axis (roll, pitch, yaw): mean, mean_abs, max, max_abs, min, min_abs, sd, sum, sum_abs
 # 
 # quat_summaries <- or_angles[1:10,] %>% 
