@@ -55,6 +55,7 @@ g_transform <- function(x) {
 
 #make sure the values fall between -2 and 2
 #I have the same slope and intercept for all axes, so don't separate into 3 axis and just convert all raw values to g.
+acc <- readRDS("all_acceleration_apr15_24.rds")
 
 (st <- Sys.time())
 acc_g <- acc %>%
@@ -63,12 +64,13 @@ acc_g <- acc %>%
       strsplit(as.character(eobs_accelerations_raw), " "),
       ~ as.character(unlist(.x) %>% as.numeric() %>% g_transform()) %>% str_c(collapse = " ")
     )
-  )
-Sys.time()-st #
+  ) %>% 
+  as.data.frame()
+Sys.time()-st #2.2 minutes
 
 #saveRDS(acc_g, "2023_birds_acc_g_Nov23.rds")
 
-saveRDS(acc_g, "all_acceleration_g_apr15_24.rds") #not yet written
+saveRDS(acc_g, "all_acceleration_g_apr_24.rds") #not yet written
 
 #STEP 3: data processing: Quaternions (calculate Euler angles) -------------------------------------------------
 
@@ -120,7 +122,7 @@ Sys.time() - st_time #1.83 hours for the whole HB dataset
 saveRDS(or_angles, file = "quat_angles_apr24.rds")
 
 
-#modify the data to have one row per second
+#modify the data to have one row per second. this step is not necessary, unless I want to merge the acc and orientation
 #Useful for summarizing the quat angles for each second. This way I can later summarize the values for each burst, depending on the burst length of interest
 
 or_angles <- readRDS("quat_angles_apr24.rds")
@@ -134,7 +136,7 @@ or_seconds <- or_angles%>%
             across(c(study_id, individual_taxon_canonical_name, orientation_quaternions_sampling_frequency,
                      tag_local_identifier, timestamp, tag_id, imu_burst_id, burst_duration), ~head(.,1)),
             .groups = "keep") %>%
-  ungroup() %>% #retain other important columns as well!!!!!
+  ungroup() %>%
   as.data.frame()
 
 Sys.time() - st_time #10 hrs
@@ -146,6 +148,7 @@ saveRDS(or_seconds, file = "quat_angles_secs_apr24.rds")
 
 or_seconds <- readRDS("quat_angles_secs_apr24.rds") 
 
+###
 or_burst_summaries <- or_seconds[1:18,] %>%
   group_by(individual_local_identifier) %>% 
   arrange(timestamp, .by_group = T) %>% 
@@ -154,15 +157,29 @@ or_burst_summaries <- or_seconds[1:18,] %>%
          burst_id_8sec = cumsum(timelag > 8)) %>% 
   ungroup() %>% 
   group_by(individual_local_identifier, burst_id_8sec) %>% #group by the 8-sec bursts to calculate the summary statistics
-  summarize(across(roll_deg, pitch_deg, yaw_deg), 
-            ~ list(daily_avg = mean, daily_max = max, daily_min = min, daily_median = median, daily_var = var,
-                   daily_quant1 = ~ quantile(.x, probs = .25) , daily_quant3 = ~ quantile(.x, probs = .75)), na.rm = T) %>% 
-  as.data.frame())
-  
-  
+  mutate(
+    mean = purrr::map(
+      strsplit(as.character(paste(., collapse = " ")), " "),
+      ~ unlist(.x) %>% as.numeric() %>% mean(na.rm = T))
+    ) %>% 
   as.data.frame()
 
-
+  #reframe(across(c(roll_deg, pitch_deg, yaw_deg), ~ angle_summaries(strings_to_numeric(.))),
+  reframe(across(c(roll_deg, pitch_deg, yaw_deg), ~ list(
+    mean = mean(strings_to_numeric(.), na.rm = T),
+    max = max(strings_to_numeric(.), na.rm = T),
+    min = min(strings_to_numeric(.), na.rm = T),
+    sum = sum(strings_to_numeric(.), na.rm = T),
+    mode = Mode(strings_to_numeric(.)), #function from 00_imu_diy.r
+    sd = sd(strings_to_numeric(.), na.rm = T),
+    mean_abs = mean(abs(strings_to_numeric(.)), na.rm = T),
+    max_abs = max(abs(strings_to_numeric(.)), na.rm = T),
+    min_abs = min(abs(strings_to_numeric(.)), na.rm = T),
+    sum_abs = sum(abs(strings_to_numeric(.)), na.rm = T))),
+#retain other important columns
+    across(c(study_id, individual_taxon_canonical_name, orientation_quaternions_sampling_frequency,
+             tag_local_identifier, timestamp, tag_id, imu_burst_id, burst_duration), ~head(.,1))) %>% 
+  as.data.frame()
 
 
 
