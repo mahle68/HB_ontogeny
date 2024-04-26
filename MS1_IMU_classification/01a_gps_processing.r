@@ -302,6 +302,9 @@ Sys.time() - st_t # 8 hours for 31 individuals
 
 stopCluster(mycl)
 
+
+
+###############old stuff ###########
 #STEP 3: prepare for Movebank annotations -----------------------------
 #open all the annotated GPS files
 
@@ -331,6 +334,7 @@ lapply(c(1:6), function(x){
   
   write.csv(data, file = paste0("R_files/all_gps_seg_apr24_", x, ".csv"))
 })
+
 
 #STEP 4: fuse annotated w_star and the rest of the dataset -----------------------------
 

@@ -13,7 +13,7 @@ library(circular)
 
 wgs <- st_crs("+proj=longlat +datum=WGS84 +no_defs")
 
-setwd("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/R_files/")
+setwd("/home/mahle68/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/R_files/")
 
 #source functions for wind direction
 source("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/lap_paper/AnEnvIPaper/data_prep/EnvironmentalData/airspeed_windsupport_crosswind.R")
@@ -148,61 +148,73 @@ saveRDS(or_seconds, file = "quat_angles_secs_apr24.rds")
 
 or_seconds <- readRDS("quat_angles_secs_apr24.rds") 
 
-###
-or_burst_summaries <- or_seconds[1:18,] %>%
+
+or_burst_ls <- or_seconds %>%
   group_by(individual_local_identifier) %>% 
   arrange(timestamp, .by_group = T) %>% 
   #the burst assignments are correct, but burst lengths are different depending on the year, etc. for the sake of uniformity, assign new burst ids that break up the data into 8 seconds
   mutate(timelag = c(0, diff(timestamp)),  #calculate time lag 
-         burst_id_8sec = cumsum(timelag > 8)) %>% 
+         burst_id_8sec = cumsum(timelag > 8),
+         unique_burst_id = paste0(individual_local_identifier, "_", burst_id_8sec)) %>% 
   ungroup() %>% 
-  group_by(individual_local_identifier, burst_id_8sec) %>% #group by the 8-sec bursts to calculate the summary statistics
-  mutate(
-    mean = purrr::map(
-      strsplit(as.character(paste(., collapse = " ")), " "),
-      ~ unlist(.x) %>% as.numeric() %>% mean(na.rm = T))
-    ) %>% 
   as.data.frame()
 
-  #reframe(across(c(roll_deg, pitch_deg, yaw_deg), ~ angle_summaries(strings_to_numeric(.))),
-  reframe(across(c(roll_deg, pitch_deg, yaw_deg), ~ list(
-    mean = mean(strings_to_numeric(.), na.rm = T),
-    max = max(strings_to_numeric(.), na.rm = T),
-    min = min(strings_to_numeric(.), na.rm = T),
-    sum = sum(strings_to_numeric(.), na.rm = T),
-    mode = Mode(strings_to_numeric(.)), #function from 00_imu_diy.r
-    sd = sd(strings_to_numeric(.), na.rm = T),
-    mean_abs = mean(abs(strings_to_numeric(.)), na.rm = T),
-    max_abs = max(abs(strings_to_numeric(.)), na.rm = T),
-    min_abs = min(abs(strings_to_numeric(.)), na.rm = T),
-    sum_abs = sum(abs(strings_to_numeric(.)), na.rm = T))),
-#retain other important columns
-    across(c(study_id, individual_taxon_canonical_name, orientation_quaternions_sampling_frequency,
-             tag_local_identifier, timestamp, tag_id, imu_burst_id, burst_duration), ~head(.,1))) %>% 
-  as.data.frame()
+or_burst_ls <- split(or_burst_ls, or_burst_ls$unique_burst_id)
+
+rm(or_seconds); gc()
+
+(start_t <- Sys.time())
+or_burst_summaries <- lapply(or_burst_ls, function(x){
+  
+  num_ls <- list(
+    roll = strings_to_numeric(x$roll_deg),
+    pitch = strings_to_numeric(x$pitch_deg),
+    yaw = strings_to_numeric(x$yaw_deg)
+  )
+  
+  angle_s <- lapply(c(1:length(num_ls)), function(y){
+    
+    aggr <- angle_summaries(num_ls[[y]]) %>% 
+      mutate(quat_angle = names(num_ls)[[y]])
+    
+    aggr
+    
+  }) %>% 
+    bind_rows() %>% 
+    pivot_wider(names_from = quat_angle, values_from = colnames(.[-10])) %>% 
+    mutate(start_timestamp = head(x$timestamp,1),
+           end_timestamp = tail(x$timestamp, 1)) %>% 
+    bind_cols(x %>% select(c(study_id, individual_local_identifier, individual_taxon_canonical_name, orientation_quaternions_sampling_frequency,
+                            tag_local_identifier, tag_id, unique_burst_id)) %>% slice(1)) %>% 
+    as.data.frame() #aggregated dataframe (with one row) for one burst
+  
+}) %>% 
+  bind_rows()
+Sys.time() - start_t #1.30
+
+saveRDS(or_burst_summaries, file = "quat_summaries_8secs_apr24.rds")
 
 
-
-
-
-############# old organization ##################
-#STEP 2: open segmented GPS data and create a list of dataframes (done in 01c_GPS_prep.r) -------------------------------------------------
-#this dataset already contains the annotations with w_star and wind (from 01c_GPS_prep.r). this was only used for the 2023 birds. the older birds were matched without env annotations
-gps_ls <- readRDS("all_gps_seg_ann_Nov2023.rds") %>% 
-  rename(thermal_uplift_ms = Movebank.Thermal.Uplift..ECMWF.,
-         wind_u = ECMWF.ERA5.PL.U.Wind,
-         wind_v = ECMWF.ERA5.PL.V.Wind) %>% 
-  mutate(wind_speed_ms = sqrt(wind_u^2 + wind_v^2),
-         wind_direction_deg = wind.directionFROM(wind_u, wind_v))
-
-gps_ls <- split(gps_ls, gps_ls$individual_local_identifier)
-
-
-#######because the mag/quaternion are stored differently than acc (n of rows is different), match with gps separately
 # STEP 4: find nearest GPS fix to each quat/mag burst -------------------------------------------------
 
-or <- readRDS("all_orientation_nov_7_23.rds")
-or_ls <- split(or, or$individual_local_identifier) #make sure this is a list of dataframes, not tibbles
+#open gps data: segmented and annotated
+gps_ls <- list.files("gps_seg_apr24", full.names = T) %>% #these are sf files
+  map(readRDS) %>% 
+  bind_rows() %>% 
+  mutate(row_id = row_number(), #assign a row id to be able to cbind the annotated data with the original data later on
+         location_long = st_coordinates(.)[,1],
+         location_lat = st_coordinates(.)[,2],
+         row_id = row_number()) %>% #add row id for ease of merging with annotation data later on
+  st_drop_geometry() %>% 
+  group_by(individual_local_identifier) %>% 
+  group_split() %>% 
+  map(as.data.frame)
+
+#open orientation data, with one row per second
+or_ls <- readRDS("quat_angles_secs_apr24.rds") %>% 
+  group_by(individual_local_identifier) %>% 
+  group_split() %>% 
+  map(as.data.frame)
 
 # Define a function to find the closest GPS information and associate it with orientation data
 find_closest_gps <- function(or_data, gps_data, time_tolerance = 10 * 60) {
@@ -214,41 +226,44 @@ find_closest_gps <- function(or_data, gps_data, time_tolerance = 10 * 60) {
     if (nrow(gps_sub) >= 1) {
       time_diff <- abs(difftime(gps_sub$timestamp, or_row_time, units = "secs"))
       min_diff <- which.min(time_diff)
-      or_data[h, c("timestamp_closest_gps", "location_long_closest_gps", "location_lat_closest_gps", "height_above_ellipsoid_closest_gps", "ground_speed_closest_gps", "heading_closest_gps", "row_id", 
-                   "flight_type_sm2", "flight_type_sm3", "track_flight_seg_id", "wind_u", "wind_v", "wind_direction_deg", "wind_speed_ms", "thermal_uplift_ms")] <- 
+      or_data[h, c("timestamp_closest_gps", "location_long_closest_gps", "location_lat_closest_gps", "height_above_ellipsoid_closest_gps", "ground_speed_closest_gps", 
+                   "heading_closest_gps", "row_id","flight_type_sm2", "flight_type_sm3", "track_flight_seg_id")] <- 
         gps_sub[min_diff, c("timestamp", "location_long", "location_lat", "height_above_ellipsoid", "ground_speed", "heading", "row_id", 
-                            "flight_clust_sm2", "flight_clust_sm3", "track_flight_seg_id",  "wind_u", "wind_v", "wind_direction_deg", "wind_speed_ms", "thermal_uplift_ms")]
+                            "flight_clust_sm2", "flight_clust_sm3", "track_flight_seg_id")]
     } else {
-      or_data[h, c("timestamp_closest_gps", "location_long_closest_gps", "location_lat_closest_gps", "height_above_ellipsoid_closest_gps", "ground_speed_closest_gps", "heading_closest_gps", "row_id", 
-                   "flight_type_sm2", "flight_type_sm3", "track_flight_seg_id", "wind_u", "wind_v", "wind_direction_deg", "wind_speed_ms", "thermal_uplift_ms")] <- NA
+      or_data[h, c("timestamp_closest_gps", "location_long_closest_gps", "location_lat_closest_gps", "height_above_ellipsoid_closest_gps", "ground_speed_closest_gps", 
+                   "heading_closest_gps", "row_id", "flight_type_sm2", "flight_type_sm3", "track_flight_seg_id")] <- NA
     }
     return(or_data[h, ])
   })
 }
 
-or_ls22 <- or_ls[!names(or_ls) %in% birds_23]
-gps_ls22 <- gps_ls[!(names(gps_ls) %in% birds_23)]
-
 # Create a list of data frames with or data and associated GPS information
 (b <- Sys.time())
-or_w_gps <- map2(or_ls22, gps_ls22, ~ find_closest_gps(or_data = .x, gps_data = .y))
-Sys.time() - b # 8.9 hrs for 31 inds; 6 hrs for 6 on tower
+or_w_gps <- map2(or_ls, gps_ls, ~ find_closest_gps(or_data = .x, gps_data = .y))
+Sys.time() - b # 3.8 hrs for orientation with one sec per row
 
 #saveRDS(or_w_gps, "GPS_matched_orientation_Nov23.rds") # a list of data frames
-saveRDS(or_w_gps, "GPS_matched_orientation_Nov23_2023birds.rds")
+saveRDS(or_w_gps, "GPS_matched_orientation_Apr24.rds")
 
 
 #add a column comparing or and gps timestamps. then save one file per individual. also limit to migratory season!! 1.09 - 30.10
 lapply(or_w_gps, function(x){
   x2 <- x %>% 
-    #filter(between(timestamp, as.POSIXct("2023-09-01 00:00:00", tz = "UTC"), as.POSIXct("2023-11-10 00:00:00", tz = "UTC"))) %>% #this filters for migration-ish :/
-    filter(between(timestamp, as.POSIXct("2022-09-01 00:00:00", tz = "UTC"), as.POSIXct("2022-11-10 00:00:00", tz = "UTC"))) %>% #this filters for migration-ish :/
     mutate(imu_gps_timediff_sec = if_else(is.na(timestamp_closest_gps), NA, difftime(timestamp, timestamp_closest_gps, units = "secs") %>%  as.numeric()))
   
-  write.csv(x2, 
-            file = paste0("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/R_files/Pritish_collab_IMU/matched_gps_orientation/",
-                          x2$individual_local_identifier[1], "_quat_mag_w_gps.csv"))
+  saveRDS(x2, 
+            file = paste0("/home/mahle68/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/R_files/matched_gps_quat/",
+                          x2$individual_local_identifier[1], "_quat_w_gps.rds"))
 })
+
+############# old organization ##################
+#STEP 2: open segmented GPS data and create a list of dataframes (done in 01c_GPS_prep.r) -------------------------------------------------
+#this dataset already contains the annotations with w_star and wind (from 01c_GPS_prep.r). this was only used for the 2023 birds. the older birds were matched without env annotations
+
+
+#######because the mag/quaternion are stored differently than acc (n of rows is different), match with gps separately
+
 
 
 # STEP 5: find nearest GPS fix to each ACC burst -------------------------------------------------

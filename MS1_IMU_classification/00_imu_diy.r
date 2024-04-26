@@ -25,6 +25,51 @@ process_quaternions <- function(quaternion_string, ftn) {
   return(str_c(result, collapse = " "))
 }
 
+#function to calculate summary statistics for a numeric vector 
+ string_to_numeric <- function(x) {str_split(x, " ")[[1]] %>% 
+   as.numeric()
+ }
+
+strings_to_numeric <- function(angle_strings, ftn) { #input is multiple rows of data
+  
+  #convert the multiple strings to one (for summarizing)
+  numeric_vec <- unlist(map(angle_strings, string_to_numeric))
+  
+  return(numeric_vec)
+  #numeric_vec <- str_split(angle_string, " ")[[1]] %>%
+  #  as.numeric()
+  
+  #result <- numeric_vec %>%
+  #  map(ftn) %>%
+  #  unlist() %>%
+  #  as.character()
+  
+  #return(str_c(result, collapse = " "))
+}
+
+#function to calculate the statistical mode
+Mode <- function(x) {
+  ux <- unique(x)
+  ux[which.max(tabulate(match(x, ux)))]
+}
+
+
+# #function to convert the character string to numeric vector
+
+ 
+ #function to calculate summary statistics for a numeric vector 
+ angle_summaries <- function(x) {
+   data.frame(mean = mean(x, na.rm = T),
+     max = max(x, na.rm = T),
+     min = min(x, na.rm = T),
+     sum = sum(x, na.rm = T),
+     sd = sd(x, na.rm = T),
+     mean_abs = mean(abs(x), na.rm = T),
+     max_abs = max(abs(x), na.rm = T),
+     min_abs = min(abs(x), na.rm = T),
+     sum_abs = sum(abs(x), na.rm = T))
+ }
+
 
 #the following functions are from Kami's IMU_conversion.r
 
