@@ -13,7 +13,7 @@ library(circular)
 
 wgs <- st_crs("+proj=longlat +datum=WGS84 +no_defs")
 
-setwd("/home/mahle68/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/R_files/")
+setwd("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/R_files/")
 
 #source functions for wind direction
 source("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/lap_paper/AnEnvIPaper/data_prep/EnvironmentalData/airspeed_windsupport_crosswind.R")
@@ -257,19 +257,11 @@ lapply(or_w_gps, function(x){
                           x2$individual_local_identifier[1], "_quat_w_gps.rds"))
 })
 
-############# old organization ##################
-#STEP 2: open segmented GPS data and create a list of dataframes (done in 01c_GPS_prep.r) -------------------------------------------------
-#this dataset already contains the annotations with w_star and wind (from 01c_GPS_prep.r). this was only used for the 2023 birds. the older birds were matched without env annotations
-
-
-#######because the mag/quaternion are stored differently than acc (n of rows is different), match with gps separately
-
-
 
 # STEP 5: find nearest GPS fix to each ACC burst -------------------------------------------------
 
 #list all acc files
-acc <- readRDS("all_acceleration_g_nov_7_23.rds") %>% 
+acc <- readRDS("all_acceleration_g_apr_24.rds") %>% 
   as.data.frame()
 
 acc_ls <- split(acc, acc$individual_local_identifier) #make sure this is a list of dataframes, not tibbles. make sure the order of individuals in the acc and gps lists are the same
@@ -285,12 +277,12 @@ find_closest_gps <- function(acc_data, gps_data, time_tolerance = 10 * 60) {
       time_diff <- abs(difftime(gps_sub$timestamp, acc_row_time, units = "secs"))
       min_diff <- which.min(time_diff)
       acc_data[h, c("timestamp_closest_gps", "location_long_closest_gps", "location_lat_closest_gps", "height_above_ellipsoid_closest_gps", "ground_speed_closest_gps", "heading_closest_gps", "row_id", 
-                    "flight_type_sm2", "flight_type_sm3", "track_flight_seg_id", "wind_u", "wind_v", "wind_direction_deg", "wind_speed_ms", "thermal_uplift_ms")] <- 
+                    "flight_type_sm2", "flight_type_sm3", "track_flight_seg_id")] <- 
         gps_sub[min_diff, c("timestamp", "location_long", "location_lat", "height_above_ellipsoid", "ground_speed", "heading", "row_id", 
-                            "flight_clust_sm2", "flight_clust_sm3", "track_flight_seg_id",  "wind_u", "wind_v", "wind_direction_deg", "wind_speed_ms", "thermal_uplift_ms")]
+                            "flight_clust_sm2", "flight_clust_sm3", "track_flight_seg_id")]
     } else {
       acc_data[h, c("timestamp_closest_gps", "location_long_closest_gps", "location_lat_closest_gps", "height_above_ellipsoid_closest_gps", "ground_speed_closest_gps", "heading_closest_gps", "row_id", 
-                    "flight_type_sm2", "flight_type_sm3", "track_flight_seg_id", "wind_u", "wind_v", "wind_direction_deg", "wind_speed_ms", "thermal_uplift_ms")] <- NA
+                    "flight_type_sm2", "flight_type_sm3", "track_flight_seg_id")] <- NA
     }
     return(acc_data[h, ])
   })
@@ -299,28 +291,20 @@ find_closest_gps <- function(acc_data, gps_data, time_tolerance = 10 * 60) {
 # Create a list of data frames with ACC data and associated GPS information
 (b <- Sys.time())
 acc_w_gps <- map2(acc_ls, gps_ls, ~ find_closest_gps(acc_data = .x, gps_data = .y))
-Sys.time() - b # 2 hours
+Sys.time() - b # 3.5 hours
 
-saveRDS(acc_w_gps, "GPS_matched_ACC_Nov23_allbirds.rds")
+saveRDS(acc_w_gps, "GPS_matched_ACC_May24_allbirds.rds")
 
 # Now you have acc_w_gps, which is a list of data frames, where each data frame contains ACC data with associated GPS information.
 
 
 #add a column comparing acc and gps timestamps. then save one file per individual. also limit to migratory season!! 1.09 - 30.10
 lapply(acc_w_gps, function(x){
-  
-  if(x$individual_local_identifier[1] %in% birds_23){
-    x2 <- x %>% 
-      filter(between(timestamp, as.POSIXct("2023-09-01 00:00:00", tz = "UTC"), as.POSIXct("2023-11-10 00:00:00", tz = "UTC"))) %>% 
-      mutate(acc_gps_timediff_sec = if_else(is.na(timestamp_closest_gps), NA, difftime(timestamp, timestamp_closest_gps, units = "secs") %>%  as.numeric()))
-  } else{
-    x2 <- x %>% 
-      filter(between(timestamp, as.POSIXct("2022-09-01 00:00:00", tz = "UTC"), as.POSIXct("2022-10-30 00:00:00", tz = "UTC"))) %>% 
-      mutate(acc_gps_timediff_sec = if_else(is.na(timestamp_closest_gps), NA, difftime(timestamp, timestamp_closest_gps, units = "secs") %>%  as.numeric())) #
-  }
+  x2 <- x %>% 
+    mutate(acc_gps_timediff_sec = if_else(is.na(timestamp_closest_gps), NA, difftime(timestamp, timestamp_closest_gps, units = "secs") %>%  as.numeric()))
   
   write.csv(x2, 
-            file = paste0("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/R_files/Pritish_collab_IMU/matched_gps_acc/",
+            file = paste0("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/R_files/matched_gps_acc/",
                           x2$individual_local_identifier[1], "_acc_w_gps.csv"))
 })
 

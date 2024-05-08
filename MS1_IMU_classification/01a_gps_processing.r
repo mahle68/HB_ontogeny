@@ -342,7 +342,7 @@ lapply(c(1:6), function(x){
 gps_seg <- readRDS("R_files/all_gps_seg_Nov2023.rds")
 
 #bind all annotated data together
-gps_complete <- lapply(list.files("/home/mahle68/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/data/annotations_w_star", 
+gps_complete <- lapply(list.files("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/data/annotations_w_star", 
                                  pattern = ".csv", recursive = T, full.names = T), read.csv) %>% 
   bind_rows() %>% 
   select(-c("X","timestamp", "location.lat", "location.long")) %>% 
