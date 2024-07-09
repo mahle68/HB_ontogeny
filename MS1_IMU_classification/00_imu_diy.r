@@ -54,36 +54,14 @@ Mode <- function(x) {
 }
 
 
-# Function to calculate angle difference with wraparound handling to deal with + and - angles
-# calculate_angle_diff <- function(new_angle, prev_angle) {
-#   diff <- new_angle - prev_angle
-#   #conditional transformation
-#   case_when(
-#     diff > 180 ~ diff - 360, # If diff is greater than 180, subtract 360 from diff
-#     diff < -180 ~ diff + 360, #If diff is less than -180, add 360 to diff
-#     TRUE ~ diff #If none of the above conditions are met (i.e., diff is between -180 and 180, inclusive), return diff unchanged
-#   )
-# }
-# 
-# #Function to calculate cumulative sum of angles. This returns a dataframe with one row per angle measurement. To get the cumulative sum, use the last row of the dataframe.
-# delta_heading <- function(angle_measurements) {
-#   tibble(angle = angle_measurements) %>%
-#     mutate(
-#       angle_diff = calculate_angle_diff(angle, lag(angle, default = first(angle))),
-#       cumulative_angle = cumsum(angle_diff)
-#     )
-# }
-
-#function to calculate cumulative pitch, roll, and yaw. Deals with the +-180 range of anlges for yaw and roll. 
-
-cumulative_orientation <- function(yaw, pitch, roll) {
+angle_summaries <- function(yaw, pitch, roll) {
   tibble(yaw = yaw, pitch = pitch, roll = roll) %>%
     mutate(
       yaw_diff = yaw - lag(yaw, default = first(yaw)),
       yaw_diff = case_when(
-        yaw_diff > 180 ~ yaw_diff - 360,  # If diff is greater than 180, subtract 360 from diff
-        yaw_diff < -180 ~ yaw_diff + 360, #If diff is less than -180, add 360 to diff
-        TRUE ~ yaw_diff #If none of the above conditions are met (i.e., diff is between -180 and 180, inclusive), return diff unchanged
+        yaw_diff > 180 ~ yaw_diff - 360,
+        yaw_diff < -180 ~ yaw_diff + 360,
+        TRUE ~ yaw_diff
       ),
       pitch_diff = pitch - lag(pitch, default = first(pitch)),
       roll_diff = roll - lag(roll, default = first(roll)),
@@ -95,18 +73,25 @@ cumulative_orientation <- function(yaw, pitch, roll) {
       cumulative_yaw = cumsum(yaw_diff),
       cumulative_pitch = cumsum(pitch_diff),
       cumulative_roll = cumsum(roll_diff)
+    ) %>%
+    summarise(
+      yaw_sd = sd(yaw),
+      yaw_mean = mean(yaw),
+      yaw_max = max(yaw),
+      yaw_min = min(yaw),
+      pitch_sd = sd(pitch),
+      pitch_mean = mean(pitch),
+      pitch_max = max(pitch),
+      pitch_min = min(pitch),
+      roll_sd = sd(roll),
+      roll_mean = mean(roll),
+      roll_max = max(roll),
+      roll_min = min(roll),
+      cumulative_yaw_final = last(cumulative_yaw),
+      cumulative_pitch_final = last(cumulative_pitch),
+      cumulative_roll_final = last(cumulative_roll)
     )
 }
-
-#function to calculate summary statistics for a numeric vector 
-# angle_summaries <- function(x) {
-#   
-#   data.frame(mean = mean(x, na.rm = T),
-#              max = max(x, na.rm = T),
-#              min = min(x, na.rm = T),
-#              total_rotation = tail(angle_cumsum(x)$cumulative_angle,1), #To get the cumulative sum, use the last row of the dataframe.
-#              sd = sd(x, na.rm = T))
-# }
 
 
 #the following functions are from Kami's IMU_conversion.r
