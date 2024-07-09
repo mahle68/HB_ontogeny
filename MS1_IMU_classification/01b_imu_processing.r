@@ -166,33 +166,28 @@ rm(or_seconds); gc()
 (start_t <- Sys.time())
 or_burst_summaries <- lapply(or_burst_ls, function(x){
   
+  #convert character strings to numeric values
   num_ls <- list(
     roll = strings_to_numeric(x$roll_deg),
     pitch = strings_to_numeric(x$pitch_deg),
     yaw = strings_to_numeric(x$yaw_deg)
   )
   
-  angle_s <- lapply(c(1:length(num_ls)), function(y){
-    
-    aggr <- angle_summaries(num_ls[[y]]) %>% 
-      mutate(quat_angle = names(num_ls)[[y]])
-    
-    aggr
-    
-  }) %>% 
-    bind_rows() %>% 
-    pivot_wider(names_from = quat_angle, values_from = colnames(.[-10])) %>% 
+  #calculate summary statistics for the 8-second burst.
+  angle_s <- angle_summaries(yaw = num_ls$yaw,
+                             pitch = num_ls$pitch,
+                             roll = num_ls$roll) %>% 
     mutate(start_timestamp = head(x$timestamp,1),
            end_timestamp = tail(x$timestamp, 1)) %>% 
     bind_cols(x %>% select(c(study_id, individual_local_identifier, individual_taxon_canonical_name, orientation_quaternions_sampling_frequency,
-                            tag_local_identifier, tag_id, unique_burst_id)) %>% slice(1)) %>% 
+                            tag_local_identifier, tag_id, imu_burst_id, unique_burst_id)) %>% slice(1)) %>% 
     as.data.frame() #aggregated dataframe (with one row) for one burst
   
 }) %>% 
   bind_rows()
-Sys.time() - start_t #1.30
+Sys.time() - start_t #1.03 hours
 
-saveRDS(or_burst_summaries, file = "quat_summaries_8secs_apr24.rds")
+saveRDS(or_burst_summaries, file = "matched_GPS_IMU/quat_summaries_8secs_Jul24.rds")
 
 
 # STEP 4: find nearest GPS fix to each quat/mag burst -------------------------------------------------
