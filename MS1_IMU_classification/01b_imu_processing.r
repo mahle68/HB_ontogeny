@@ -77,18 +77,6 @@ acc_n <- acc_g %>%
                                acc_raw_length = length(strings_to_numeric(eobs_accelerations_raw))
   )
 
-
-    #angle_summary = list(angle_summaries(
-    #  yaw = strings_to_numeric(yaw_deg),
-    #  pitch = strings_to_numeric(pitch_deg),
-    #  roll = strings_to_numeric(roll_deg)
-    #))
-  #) %>%
-  #ungroup() %>%
-  #unnest(angle_summary) %>% 
-  #as.data.frame()
-
-
 #STEP 3: data processing: Quaternions (calculate Euler angles) -------------------------------------------------
 
 #open orientation dataset, subset for data with high sampling frequency (this should be post-fledging, migration, and wintering data for laterality tests)
@@ -177,6 +165,8 @@ seconds_summaries <- or_seconds %>%
 
 Sys.time() - start_t # 3.7 hrs
 
+saveRDS(seconds_summaries, file = "quat_summaries_1sec_Jul24.rds")
+
 #split the dataset into a list of 8-second bursts (most of the honey buzzard IMU was collected in 8-second bursts)
 
 or_seconds <- readRDS("quat_angles_secs_apr24.rds") 
@@ -221,7 +211,7 @@ or_burst_summaries <- lapply(or_burst_ls, function(x){
   bind_rows()
 Sys.time() - start_t #1.03 hours
 
-saveRDS(or_burst_summaries, file = "matched_GPS_IMU/quat_summaries_8secs_Jul24.rds")
+saveRDS(or_burst_summaries, file = "quat_summaries_8secs_Jul24.rds")
 
 
 # STEP 4: find nearest GPS fix to each quat/mag burst -------------------------------------------------
@@ -286,6 +276,24 @@ lapply(or_w_gps, function(x){
                           x2$individual_local_identifier[1], "_quat_w_gps.rds"))
 })
 
+
+########## mid-step : bind one-second orientation data with summarized values per second with the matched GPS-Orientation data (Jul. 11. 2024) ##########
+
+#orientation summarized per second: 
+seconds_summaries <- readRDS("quat_summaries_1sec_Jul24.rds")
+
+#GPS-matched orientation:
+or_w_gps <- readRDS("GPS_matched_orientation_Apr24.rds") %>% 
+  bind_rows() %>% 
+  select(-`floor_date(timestamp, "second")`)
+
+#bind the two based on individual ID and imu_burst_id
+
+or_summaries_w_gps <- or_w_gps %>% 
+  full_join(seconds_summaries, 
+            by = intersect(names(or_w_gps), names(seconds_summaries)))
+
+saveRDS(or_summaries_w_gps, file = "matched_GPS_IMU/GPS_matched_or_w_summaries_Jul24.rds")
 
 # STEP 5: find nearest GPS fix to each ACC burst -------------------------------------------------
 
