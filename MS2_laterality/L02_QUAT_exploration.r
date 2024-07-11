@@ -10,7 +10,7 @@ library(ggridges)
 setwd("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/R_files/")
 wgs <- st_crs("+proj=longlat +datum=WGS84 +no_defs")
 
-
+birds_2023 <- c("D329_013", "D329_012", "D329_015", "D329_014", "D326_193", "D326_192")
 
 #open quat data-in original resolution: prepared in 01b_imu_processing.r
 #quat_gps_files <- list.files("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/R_files/matched_GPS_IMU/matched_gps_quat",
@@ -43,27 +43,17 @@ mapview(smpl_burst_sf , zcol = "cumulative_yaw", alpha = 0)
 one_burst <- smpl_burst_sf %>% 
   filter(imu_burst_id == 2672)
 
-#2023 data for further investigation:
-data_2023 <- or_summaries_w_gps %>% filter(year(timestamp) == 2023)
+#2023 data for further investigation to only have simultaneous GPS+IMU
+data_2023 <- or_summaries_w_gps %>% 
+  filter(individual_local_identifier %in% birds_2023)
 
-#summary plots for cumulative yaw: only simultaneous GPS+IMU
+#summary plots for cumulative yaw: try histograms for more clarity on 0s
 X11()
-ggplot(data_2023 %>% drop_na(flight_type_sm3), aes(x = abs(cumulative_yaw), y = flight_type_sm3, color = flight_type_sm3, fill = flight_type_sm3)) + 
-  stat_density_ridges(jittered_points = T, rel_min_height = .01,
-                      point_shape = "|", point_size = 2, point_alpha = 0.8, size = 1.5,
-                      calc_ecdf = FALSE, panel_scaling = FALSE, alpha = 0.2, quantile_lines = TRUE,
-                      scale = 1.5, show.legend = F) +
-  labs(y = "", x = "absolute cumulative yaw per second") +
-  coord_cartesian(xlim = c(-180,180)) +
-  theme_minimal() 
-
-#try histograms for more clarity on 0s
-X11()
-ggplot(or_summaries_w_gps %>% drop_na(flight_type_sm3) %>% filter(year(timestamp) == 2023),
+ggplot(data_2023 %>% drop_na(flight_type_sm3),
        aes(x = cumulative_yaw, 
            y = flight_type_sm3, height = stat(density))) + 
   geom_density_ridges(
-    stat = "binline", bins = 100, scale = 0.98, alpha = 0.3,
+    stat = "binline", bins = 500, scale = 0.98, alpha = 0.3,
     draw_baseline = FALSE
   ) +
   scale_x_continuous(limits = c(-180, 180)) +
@@ -80,24 +70,55 @@ ggplot(or_summaries_w_gps %>% drop_na(flight_type_sm3), aes(x = pitch_mean, y = 
   coord_cartesian(xlim = c(-90, 90)) +
   theme_minimal() 
 
-#there are a lot of 0s in the distributions. explore the gps flight classification when cumulative_yaw is 0
-zeros <- or_summaries_w_gps %>% 
-  filter(cumulative_yaw == 0 &
-           flight_type_sm3 %in% c("circular_soaring", "shallow_circular_soaring"))
+#distribution of cumulative yaw at each flight category
+circling_2023 <- data_2023 %>% 
+  filter(flight_type_sm3 %in% c("shallow_circular_soaring", "circular_soaring"))
 
+data_2023 %>% 
+  #combine the two types of circling
+  mutate(circling_vs_linear = ifelse(flight_type_sm3 %in% c("shallow_circular_soaring", "circular_soaring"), 
+                                     "circling", flight_type_sm3)) %>% 
+  group_by(circling_vs_linear) %>%
+  #group_by(flight_type_sm3) %>%
+  summarize(mean = mean(cumulative_yaw),
+            min = min(cumulative_yaw),
+            max = max(cumulative_yaw),
+            sd = sd(cumulative_yaw),
+            quant_90 = quantile(cumulative_yaw, probs = 0.90),
+            quant_10 = quantile(cumulative_yaw, probs = 0.10),
+            abs_quant_10 = quantile(abs(cumulative_yaw), probs = 0.10),
+            abs_quant_25 = quantile(abs(cumulative_yaw), probs = 0.25),
+            abs_quant_75 = quantile(abs(cumulative_yaw), probs = 0.75),
+            abs_quant_90 = quantile(abs(cumulative_yaw), probs = 0.90),
+            abs_mean = mean(abs(cumulative_yaw)),
+            abs_median = median(abs(cumulative_yaw)),
+            abs_min = min(abs(cumulative_yaw))) %>% 
+  as.data.frame()
 
-zeros_sf <- zeros %>% 
+#take 21 degrees (abs_median of circling, when both circling types are combined)
+
+data_circling <- data_2023 %>% 
+  mutate(circling_ys_no = ifelse(cumulative_yaw > 14 | cumulative_yaw < -14, "circling", "not_circling"))
+
+circling_ys_no_sf <- data_circling %>% 
+  arrange(individual_local_identifier, timestamp) %>% 
   drop_na("location_lat_closest_gps") %>% 
   st_as_sf(coords = c("location_long_closest_gps", "location_lat_closest_gps"), crs = wgs)
 
-mapview(zeros_sf)
+mapview(circling_ys_no_sf[1:5000,], zcol = "circling_ys_no")
 
 #-------------------------------------------------------------------------------------
 # STEP2: during circling, what is bank angle like?
 #-------------------------------------------------------------------------------------
-#use roll in original resolution (non-aggregated) for all individuals within circling bouts OR take the mode of roll
+#use cumulative roll for all individuals within circling bouts
 
+or_summaries_circling <- readRDS("matched_GPS_IMU/GPS_matched_or_w_summaries_Jul24.rds") %>% 
+  mutate(circling_ys_no = ifelse(cumulative_yaw > 16 | cumulative_yaw < -16, "circling", "not_circling")) %>% 
+  filter(circling_ys_no == "circling")
 
+ggplot() +
+  geom_point(data = or_summaries_circling, aes(x = timestamp, y = cumulative_roll)) +
+  facet_wrap(~individual_local_identifier)
 
 #-------------------------------------------------------------------------------------
 # STEP3: Calculate degree of handedness
