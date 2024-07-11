@@ -87,9 +87,9 @@ angle_summaries <- function(yaw, pitch, roll) {
       roll_mean = mean(roll),
       roll_max = max(roll),
       roll_min = min(roll),
-      cumulative_yaw_final = last(cumulative_yaw),
-      cumulative_pitch_final = last(cumulative_pitch),
-      cumulative_roll_final = last(cumulative_roll)
+      cumulative_yaw = last(cumulative_yaw),
+      cumulative_pitch = last(cumulative_pitch),
+      cumulative_roll = last(cumulative_roll)
     )
 }
 

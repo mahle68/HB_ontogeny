@@ -17,6 +17,8 @@ setwd("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projec
 
 #source functions for wind direction
 source("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/lap_paper/AnEnvIPaper/data_prep/EnvironmentalData/airspeed_windsupport_crosswind.R")
+#source the imu conversion functions
+source("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/HB_ontogeny/MS1_IMU_classification/00_imu_diy.r")
 
 #STEP 1: download all IMU data -------------------------------------------------
 
@@ -51,8 +53,6 @@ g_transform <- function(x) {
   (x-2048)*(1/1024) #slope according to the eobs manual
 }
 
-#extract values for each axis as a numeric vector to convert to g
-
 #make sure the values fall between -2 and 2
 #I have the same slope and intercept for all axes, so don't separate into 3 axis and just convert all raw values to g.
 acc <- readRDS("all_acceleration_apr15_24.rds")
@@ -68,14 +68,28 @@ acc_g <- acc %>%
   as.data.frame()
 Sys.time()-st #2.2 minutes
 
-#saveRDS(acc_g, "2023_birds_acc_g_Nov23.rds")
+saveRDS(acc_g, "all_acceleration_g_apr_24.rds")
 
-saveRDS(acc_g, "all_acceleration_g_apr_24.rds") #not yet written
+#check the number of acc records. we have 1.2 seconds of data per row
+acc_n <- acc_g %>%
+  rowwise() %>%
+  mutate(acc_g_length = length(strings_to_numeric(eobs_acceleration_g)),
+                               acc_raw_length = length(strings_to_numeric(eobs_accelerations_raw))
+  )
+
+
+    #angle_summary = list(angle_summaries(
+    #  yaw = strings_to_numeric(yaw_deg),
+    #  pitch = strings_to_numeric(pitch_deg),
+    #  roll = strings_to_numeric(roll_deg)
+    #))
+  #) %>%
+  #ungroup() %>%
+  #unnest(angle_summary) %>% 
+  #as.data.frame()
+
 
 #STEP 3: data processing: Quaternions (calculate Euler angles) -------------------------------------------------
-
-#source the imu conversion functions
-source("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/HB_ontogeny/MS1_IMU_classification/00_imu_diy.r")
 
 #open orientation dataset, subset for data with high sampling frequency (this should be post-fledging, migration, and wintering data for laterality tests)
 or <- readRDS("all_orientation_apr15_24.rds") %>% 
@@ -84,7 +98,7 @@ or <- readRDS("all_orientation_apr15_24.rds") %>%
   mutate(timelag = c(0, diff(timestamp)),  #calculate time lag 
          imu_burst_id = cumsum(timelag > 1)) %>% #assign a unique burst ID every time timelag is larger than 1 second. The IDs will be unique only within one ind's data
   ungroup() %>% 
-  as.data.frame() 
+  as.data.frame()
 
 #subset or by the length of the bursts. Only keep those that are longer than 3 second
 burst_size <- or %>% 
@@ -143,11 +157,29 @@ Sys.time() - st_time #10 hrs
 
 saveRDS(or_seconds, file = "quat_angles_secs_apr24.rds")
 
-
-#For each axis (roll, pitch, yaw), calculate: mean, mean_abs, max, max_abs, min, min_abs, sd, sum, sum_abs
+#for each second, calculate the mean, min, max, sd, cumsum for each axis
 
 or_seconds <- readRDS("quat_angles_secs_apr24.rds") 
 
+(start_t <- Sys.time())
+seconds_summaries <- or_seconds %>%
+  rowwise() %>%
+  mutate(
+    angle_summary = list(angle_summaries(
+      yaw = strings_to_numeric(yaw_deg),
+      pitch = strings_to_numeric(pitch_deg),
+      roll = strings_to_numeric(roll_deg)
+    ))
+  ) %>%
+  ungroup() %>%
+  unnest(angle_summary) %>% 
+  as.data.frame()
+
+Sys.time() - start_t # 3.7 hrs
+
+#split the dataset into a list of 8-second bursts (most of the honey buzzard IMU was collected in 8-second bursts)
+
+or_seconds <- readRDS("quat_angles_secs_apr24.rds") 
 
 or_burst_ls <- or_seconds %>%
   group_by(individual_local_identifier) %>% 
@@ -163,6 +195,8 @@ or_burst_ls <- split(or_burst_ls, or_burst_ls$unique_burst_id)
 
 rm(or_seconds); gc()
 
+
+#For each axis (roll, pitch, yaw), calculate: mean, min, max, sd, cumsum
 (start_t <- Sys.time())
 or_burst_summaries <- lapply(or_burst_ls, function(x){
   
