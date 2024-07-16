@@ -169,49 +169,87 @@ saveRDS(seconds_summaries, file = "quat_summaries_1sec_Jul24.rds")
 
 #split the dataset into a list of 8-second bursts (most of the honey buzzard IMU was collected in 8-second bursts)
 
-or_seconds <- readRDS("quat_angles_secs_apr24.rds") 
+or_seconds <- readRDS("quat_angles_secs_apr24.rds") %>% 
+  drop_na(individual_local_identifier)
 
-or_burst_ls <- or_seconds %>%
-  group_by(individual_local_identifier) %>% 
-  arrange(timestamp, .by_group = T) %>% 
-  #the burst assignments are correct, but burst lengths are different depending on the year, etc. for the sake of uniformity, assign new burst ids that break up the data into 8 seconds
-  mutate(timelag = c(0, diff(timestamp)),  #calculate time lag 
-         burst_id_8sec = cumsum(timelag > 8),
-         unique_burst_id = paste0(individual_local_identifier, "_", burst_id_8sec)) %>% 
+
+or_ls <- or_seconds %>% 
+  group_by(individual_local_identifier, imu_burst_id) %>% 
+  mutate(n_of_rows = n()) %>% 
   ungroup() %>% 
   as.data.frame()
+
+or_seconds_8_sec_id <- or_ls %>% 
+  filter(n_of_rows > 9) %>% 
+  group_by(individual_local_identifier, imu_burst_id) %>% 
+  mutate(burst_id_8sec = paste0(imu_burst_id, "_", ceiling(row_number() / 8))) %>% 
+  ungroup() %>% 
+  as.data.frame() %>% 
+  #bind it back to the rest of the data
+  full_join(or_ls %>% filter(n_of_rows <= 9)) %>% 
+  mutate(burst_id_8sec = ifelse(is.na(burst_id_8sec), paste0(imu_burst_id, "_", 1), burst_id_8sec)) %>% #assign unique 8-sec burst ID to bursts that were less than 9 seconds long to begin with. use 1 because they each have one sub-burst.
+  as.data.frame()
+
+
+
+# gap_threshold <- 8  # or whatever threshold you want to use
+# 
+# or_burst_ls <- or_seconds %>%
+#   group_by(individual_local_identifier) %>% 
+#   arrange(timestamp, .by_group = TRUE) %>% 
+#   mutate(
+#     timelag = c(0, diff(timestamp)),
+#     new_burst = cumsum(timelag > gap_threshold),
+#     cumulative_time = cumsum(timelag) - cumsum(timelag * (timelag > gap_threshold)),
+#     burst_id_8sec = new_burst + floor(cumulative_time / 8)
+#   ) %>% 
+#   ungroup() %>%
+#   mutate(unique_burst_id = paste0(individual_local_identifier, "_", burst_id_8sec)) %>%
+#   select(-new_burst, -cumulative_time) %>%
+#   as.data.frame()
+
+# or_burst_ls <- or_seconds %>%
+#   group_by(individual_local_identifier) %>% 
+#   arrange(timestamp, .by_group = T) %>% 
+#   #the burst assignments are correct, but burst lengths are different depending on the year, etc. for the sake of uniformity, assign new burst ids that break up the data into 8 seconds
+#   mutate(timelag = c(0, diff(timestamp)),  #calculate time lag 
+#          burst_id_8sec = cumsum(timelag > 8),
+#          unique_burst_id = paste0(individual_local_identifier, "_", burst_id_8sec)) %>% 
+#   ungroup() %>% 
+#   as.data.frame()
 
 or_burst_ls <- split(or_burst_ls, or_burst_ls$unique_burst_id)
 
 rm(or_seconds); gc()
 
 
-#For each axis (roll, pitch, yaw), calculate: mean, min, max, sd, cumsum
-(start_t <- Sys.time())
-or_burst_summaries <- lapply(or_burst_ls, function(x){
-  
-  #convert character strings to numeric values
-  num_ls <- list(
-    roll = strings_to_numeric(x$roll_deg),
-    pitch = strings_to_numeric(x$pitch_deg),
-    yaw = strings_to_numeric(x$yaw_deg)
-  )
-  
-  #calculate summary statistics for the 8-second burst.
-  angle_s <- angle_summaries(yaw = num_ls$yaw,
-                             pitch = num_ls$pitch,
-                             roll = num_ls$roll) %>% 
-    mutate(start_timestamp = head(x$timestamp,1),
-           end_timestamp = tail(x$timestamp, 1)) %>% 
-    bind_cols(x %>% select(c(study_id, individual_local_identifier, individual_taxon_canonical_name, orientation_quaternions_sampling_frequency,
-                            tag_local_identifier, tag_id, imu_burst_id, unique_burst_id)) %>% slice(1)) %>% 
-    as.data.frame() #aggregated dataframe (with one row) for one burst
-  
-}) %>% 
-  bind_rows()
-Sys.time() - start_t #1.03 hours
-
-saveRDS(or_burst_summaries, file = "quat_summaries_8secs_Jul24.rds")
+#decide about below: (use updated code in laterality script)
+# #For each axis (roll, pitch, yaw), calculate: mean, min, max, sd, cumsum
+# (start_t <- Sys.time())
+# or_burst_summaries <- lapply(or_burst_ls, function(x){
+#   
+#   #convert character strings to numeric values
+#   num_ls <- list(
+#     roll = strings_to_numeric(x$roll_deg),
+#     pitch = strings_to_numeric(x$pitch_deg),
+#     yaw = strings_to_numeric(x$yaw_deg)
+#   )
+#   
+#   #calculate summary statistics for the 8-second burst.
+#   angle_s <- angle_summaries(yaw = num_ls$yaw,
+#                              pitch = num_ls$pitch,
+#                              roll = num_ls$roll) %>% 
+#     mutate(start_timestamp = head(x$timestamp,1),
+#            end_timestamp = tail(x$timestamp, 1)) %>% 
+#     bind_cols(x %>% select(c(study_id, individual_local_identifier, individual_taxon_canonical_name, orientation_quaternions_sampling_frequency,
+#                             tag_local_identifier, tag_id, imu_burst_id, unique_burst_id)) %>% slice(1)) %>% 
+#     as.data.frame() #aggregated dataframe (with one row) for one burst
+#   
+# }) %>% 
+#   bind_rows()
+# Sys.time() - start_t #1.03 hours
+# 
+# saveRDS(or_burst_summaries, file = "quat_summaries_8secs_Jul24.rds")
 
 
 # STEP 4: find nearest GPS fix to each quat/mag burst -------------------------------------------------
