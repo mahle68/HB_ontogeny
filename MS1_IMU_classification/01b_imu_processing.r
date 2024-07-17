@@ -74,7 +74,7 @@ saveRDS(acc_g, "all_acceleration_g_apr_24.rds")
 acc_n <- acc_g %>%
   rowwise() %>%
   mutate(acc_g_length = length(strings_to_numeric(eobs_acceleration_g)),
-                               acc_raw_length = length(strings_to_numeric(eobs_accelerations_raw))
+         acc_raw_length = length(strings_to_numeric(eobs_accelerations_raw))
   )
 
 #STEP 3: data processing: Quaternions (calculate Euler angles) -------------------------------------------------
@@ -94,7 +94,7 @@ burst_size <- or %>%
   summarize(burst_length = n(), #This is not very informative... because the length is not in seconds... it's better to calculate the burst duration instead
             burst_duration = sum(timelag[-1])) %>% #the first value of timelag in each burst is a large value indicating timediff between this and the previous burst. remove it
   ungroup()
-  
+
 or_hfreq <- or %>% 
   right_join(burst_size %>% filter(burst_duration > 3)) #there are bursts with length of 0-3
 
@@ -123,8 +123,8 @@ Sys.time() - st_time #1.83 hours for the whole HB dataset
 
 saveRDS(or_angles, file = "quat_angles_apr24.rds")
 
-
-#modify the data to have one row per second. this step is not necessary, unless I want to merge the acc and orientation
+###### summarize data over each second
+#modify the data to have one row per second. this step is not absolutely necessary
 #Useful for summarizing the quat angles for each second. This way I can later summarize the values for each burst, depending on the burst length of interest
 
 or_angles <- readRDS("quat_angles_apr24.rds")
@@ -166,90 +166,6 @@ seconds_summaries <- or_seconds %>%
 Sys.time() - start_t # 3.7 hrs
 
 saveRDS(seconds_summaries, file = "quat_summaries_1sec_Jul24.rds")
-
-#split the dataset into a list of 8-second bursts (most of the honey buzzard IMU was collected in 8-second bursts)
-
-or_seconds <- readRDS("quat_angles_secs_apr24.rds") %>% 
-  drop_na(individual_local_identifier)
-
-
-or_ls <- or_seconds %>% 
-  group_by(individual_local_identifier, imu_burst_id) %>% 
-  mutate(n_of_rows = n()) %>% 
-  ungroup() %>% 
-  as.data.frame()
-
-or_seconds_8_sec_id <- or_ls %>% 
-  filter(n_of_rows > 9) %>% 
-  group_by(individual_local_identifier, imu_burst_id) %>% 
-  mutate(burst_id_8sec = paste0(imu_burst_id, "_", ceiling(row_number() / 8))) %>% 
-  ungroup() %>% 
-  as.data.frame() %>% 
-  #bind it back to the rest of the data
-  full_join(or_ls %>% filter(n_of_rows <= 9)) %>% 
-  mutate(burst_id_8sec = ifelse(is.na(burst_id_8sec), paste0(imu_burst_id, "_", 1), burst_id_8sec)) %>% #assign unique 8-sec burst ID to bursts that were less than 9 seconds long to begin with. use 1 because they each have one sub-burst.
-  as.data.frame()
-
-
-
-# gap_threshold <- 8  # or whatever threshold you want to use
-# 
-# or_burst_ls <- or_seconds %>%
-#   group_by(individual_local_identifier) %>% 
-#   arrange(timestamp, .by_group = TRUE) %>% 
-#   mutate(
-#     timelag = c(0, diff(timestamp)),
-#     new_burst = cumsum(timelag > gap_threshold),
-#     cumulative_time = cumsum(timelag) - cumsum(timelag * (timelag > gap_threshold)),
-#     burst_id_8sec = new_burst + floor(cumulative_time / 8)
-#   ) %>% 
-#   ungroup() %>%
-#   mutate(unique_burst_id = paste0(individual_local_identifier, "_", burst_id_8sec)) %>%
-#   select(-new_burst, -cumulative_time) %>%
-#   as.data.frame()
-
-# or_burst_ls <- or_seconds %>%
-#   group_by(individual_local_identifier) %>% 
-#   arrange(timestamp, .by_group = T) %>% 
-#   #the burst assignments are correct, but burst lengths are different depending on the year, etc. for the sake of uniformity, assign new burst ids that break up the data into 8 seconds
-#   mutate(timelag = c(0, diff(timestamp)),  #calculate time lag 
-#          burst_id_8sec = cumsum(timelag > 8),
-#          unique_burst_id = paste0(individual_local_identifier, "_", burst_id_8sec)) %>% 
-#   ungroup() %>% 
-#   as.data.frame()
-
-or_burst_ls <- split(or_burst_ls, or_burst_ls$unique_burst_id)
-
-rm(or_seconds); gc()
-
-
-#decide about below: (use updated code in laterality script)
-# #For each axis (roll, pitch, yaw), calculate: mean, min, max, sd, cumsum
-# (start_t <- Sys.time())
-# or_burst_summaries <- lapply(or_burst_ls, function(x){
-#   
-#   #convert character strings to numeric values
-#   num_ls <- list(
-#     roll = strings_to_numeric(x$roll_deg),
-#     pitch = strings_to_numeric(x$pitch_deg),
-#     yaw = strings_to_numeric(x$yaw_deg)
-#   )
-#   
-#   #calculate summary statistics for the 8-second burst.
-#   angle_s <- angle_summaries(yaw = num_ls$yaw,
-#                              pitch = num_ls$pitch,
-#                              roll = num_ls$roll) %>% 
-#     mutate(start_timestamp = head(x$timestamp,1),
-#            end_timestamp = tail(x$timestamp, 1)) %>% 
-#     bind_cols(x %>% select(c(study_id, individual_local_identifier, individual_taxon_canonical_name, orientation_quaternions_sampling_frequency,
-#                             tag_local_identifier, tag_id, imu_burst_id, unique_burst_id)) %>% slice(1)) %>% 
-#     as.data.frame() #aggregated dataframe (with one row) for one burst
-#   
-# }) %>% 
-#   bind_rows()
-# Sys.time() - start_t #1.03 hours
-# 
-# saveRDS(or_burst_summaries, file = "quat_summaries_8secs_Jul24.rds")
 
 
 # STEP 4: find nearest GPS fix to each quat/mag burst -------------------------------------------------
@@ -310,12 +226,12 @@ lapply(or_w_gps, function(x){
     mutate(imu_gps_timediff_sec = if_else(is.na(timestamp_closest_gps), NA, difftime(timestamp, timestamp_closest_gps, units = "secs") %>%  as.numeric()))
   
   saveRDS(x2, 
-            file = paste0("/home/mahle68/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/R_files/matched_gps_quat/",
-                          x2$individual_local_identifier[1], "_quat_w_gps.rds"))
+          file = paste0("/home/mahle68/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/R_files/matched_gps_quat/",
+                        x2$individual_local_identifier[1], "_quat_w_gps.rds"))
 })
 
 
-########## mid-step : bind one-second orientation data with summarized values per second with the matched GPS-Orientation data (Jul. 11. 2024) ##########
+########## STEP 4.1 : bind one-second orientation data with summarized values per second with the matched GPS-Orientation data (Jul. 11. 2024) ##########
 
 #orientation summarized per second: 
 seconds_summaries <- readRDS("quat_summaries_1sec_Jul24.rds")
@@ -332,6 +248,64 @@ or_summaries_w_gps <- or_w_gps %>%
             by = intersect(names(or_w_gps), names(seconds_summaries)))
 
 saveRDS(or_summaries_w_gps, file = "matched_GPS_IMU/GPS_matched_or_w_summaries_Jul24.rds")
+
+########## STEP 4.2 : summarize quat data over 8-second bursts (Jul. 17. 2024) ##########
+
+#assign a unique id for each 8-second burst (most of the honey buzzard IMU was collected in 8-second bursts). break up longer bursts into 8 second subsets
+or_summaries_w_gps <- readRDS("matched_GPS_IMU/GPS_matched_or_w_summaries_Jul24.rds") %>% 
+  drop_na(individual_local_identifier)
+
+#Add a new column with the number of rows of each imu_burst. We have roughly one second of data per row. 
+burst_n <- or_summaries_w_gps %>% 
+  group_by(individual_local_identifier, imu_burst_id) %>% 
+  mutate(n_of_rows = n()) %>% 
+  ungroup() %>% 
+  as.data.frame()
+
+#Add a new column with new burst IDs for bursts that are longer than 9 seconds. For the rest, keep the original burst IDs 
+or_seconds_8_sec_id <- burst_n %>% 
+  filter(n_of_rows > 9) %>% 
+  group_by(individual_local_identifier, imu_burst_id) %>% 
+  mutate(burst_id_8sec = paste0(individual_local_identifier, "_", imu_burst_id, "_", ceiling(row_number() / 8))) %>% 
+  ungroup() %>% 
+  as.data.frame() %>% 
+  #bind it back to the rest of the data
+  full_join(burst_n %>% filter(n_of_rows <= 9)) %>% 
+  mutate(burst_id_8sec = ifelse(is.na(burst_id_8sec), 
+                                paste0(individual_local_identifier, "_", imu_burst_id, "_", 1), burst_id_8sec)) %>% #assign unique 8-sec burst ID to bursts that were less than 9 seconds long to begin with. use 1 because they each have one sub-burst.
+  as.data.frame()
+
+
+# calculate summaries of angles for each 8-sec burst
+(start_time <- Sys.time())
+or_8sec_summaries <- or_seconds_8_sec_id %>% 
+  group_by(burst_id_8sec) %>% #this grouping variable has unique values for individuals and bursts. 
+  arrange(timestamp, .by_group = T) %>% 
+  #aggregate summarized angles over 8 seconds
+  summarize(across(c(study_id, individual_taxon_canonical_name, individual_local_identifier, orientation_quaternions_sampling_frequency,
+                     tag_local_identifier, tag_id, imu_burst_id, burst_duration), ~head(.,1)),
+            across(c(yaw_sd, roll_sd, pitch_sd,
+                     yaw_mean, roll_mean, pitch_mean,
+                     yaw_min, roll_min, pitch_min,
+                     yaw_max, roll_max, pitch_max), 
+                   ~mean(., na.rm = T),
+                   .names = "mean_{.col}"), #rename the column, because these values are the mean of the sd, max, min values across the 8 seconds
+            across(c(cumulative_yaw, cumulative_roll, cumulative_pitch),
+                   ~sum(., na.rm = T),
+                   .names = "{.col}_8sec"),
+            across(c(timestamp, timestamp_closest_gps, location_lat_closest_gps, location_long_closest_gps, height_above_ellipsoid_closest_gps, ground_speed_closest_gps, heading_closest_gps), 
+                   ~head(.,1),
+                   .names = "start_{.col}"),
+            across(c(flight_type_sm2, flight_type_sm3, track_flight_seg_id),
+                   ~Mode(.), #make sure the Model function is defined
+                   .names = "{.col}_Mode"),
+            .groups = "keep") %>% 
+  ungroup %>% 
+  as.data.frame()
+(Sys.time() - start_time)
+
+saveRDS(or_8sec_summaries, "matched_GPS_IMU/GPS_matched_or_w_summaries_8sec_Jul24.rds") #this doesn't have the NA individual
+
 
 # STEP 5: find nearest GPS fix to each ACC burst -------------------------------------------------
 
@@ -382,8 +356,3 @@ lapply(acc_w_gps, function(x){
             file = paste0("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/R_files/matched_gps_acc/",
                           x2$individual_local_identifier[1], "_acc_w_gps.csv"))
 })
-
-############ Check one file from 2023 to make sure the matching worked ###############
-
-sample <- read.csv("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/R_files/Pritish_collab_IMU/matched_gps_orientation/D329_012_quat_mag_w_gps.csv") #2023 bird
-sample2 <-read.csv("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/R_files/Pritish_collab_IMU/matched_gps_orientation/D323_154_quat_mag_w_gps.csv") #2023 bird
