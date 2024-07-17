@@ -19,7 +19,7 @@ birds_2023 <- c("D329_013", "D329_012", "D329_015", "D329_014", "D326_193", "D32
 #                             pattern = "rds", full.names = T)
 
 #open quat data- aggregated for every second, matched with gps-informed flight classification: prepared in 01b_imu_processing.r
-or_summaries_w_gps <- readRDS("matched_GPS_IMU/GPS_matched_or_w_summaries_Jul24.rds") %>% 
+or_summaries_w_gps <- readRDS("matched_GPS_IMU/GPS_matched_or_w_summaries_8secIDs_Jul24.rds") %>% #this version also has the IDs assigned to 8-sec bursts.
   drop_na(individual_local_identifier)
 
 
@@ -31,7 +31,8 @@ or_summaries_w_gps <- readRDS("matched_GPS_IMU/GPS_matched_or_w_summaries_Jul24.
 #look at a sample individual from 2023
 smpl <- or_summaries_w_gps %>% 
   filter(individual_local_identifier == "D329_013" &
-           imu_burst_id %in% c(2672, 2674, 2676)
+  #         imu_burst_id %in% c(2672, 2674, 2676, 2677, 2678)
+    imu_burst_id %in% c(4927:5817)
   )
 
 
@@ -115,23 +116,13 @@ mapview(circling_ys_no_sf[1:5000,], zcol = "circling_ys_no")
 #-------------------------------------------------------------------------------------
 #use cumulative roll for all individuals within circling bouts
 
-# #based on summaries for each second
-# or_summaries_circling <- readRDS("matched_GPS_IMU/GPS_matched_or_w_summaries_Jul24.rds") %>% 
-#   mutate(circling_ys_no = ifelse(cumulative_yaw > 16 | cumulative_yaw < -16, "circling", "not_circling")) %>% 
-#   filter(circling_ys_no == "circling")
-# 
-# ggplot() +
-#   geom_point(data = or_summaries_circling, aes(x = timestamp, y = cumulative_roll)) +
-#   facet_wrap(~individual_local_identifier)
-
-
-#based on summaries for each 8-second burst
+#open summaries for 8-second bursts
 or_8sec_summaries <- readRDS("matched_GPS_IMU/GPS_matched_or_w_summaries_8sec_Jul24.rds")
 
 
 #assign circling vs non-circling to values of yaw
 or_8sec_circling_ys_no <- or_8sec_summaries %>% 
-  mutate(circling = ifelse(cumulative_yaw_8sec >= 20 | cumulative_yaw_8sec <= -20, "yes", "no"))
+  mutate(circling = ifelse(cumulative_yaw_8sec >= 45 | cumulative_yaw_8sec <= -45, "yes", "no"))
 
 #look at the distribution of circling vs not, on the map
 
@@ -141,7 +132,7 @@ world <- st_read("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/
 
 #create a rectangle to be the oceans
 Polycoords <- data.frame(long = c(-17,43),
-                         lat = c(-35.6,67))
+                         lat = c(-50,67))
 
 pol <- st_polygon(
   list(
@@ -153,7 +144,7 @@ pol <- st_polygon(
   st_sfc(crs = wgs)
 
 
-X11(width = 13, height = 15)
+X11(width = 10, height = 15)
 (circling_p <- ggplot()+
   geom_sf(data = pol, fill = "powderblue", col = "powderblue") +
   geom_sf(data = world, fill = "white", col = "white") +
@@ -164,19 +155,35 @@ X11(width = 13, height = 15)
                 col = circling), size = 1.2)
 ) 
   
-  
-#check the circling assignments with the 1Hz GPS data for a subset
+### check the circling assignments with the 1Hz GPS data for a subset ####
 #use smpl_burst_sf from above
 
 smpl_8sec <- or_8sec_circling_ys_no %>% 
-  filter(between(start_timestamp, head(smpl_burst_sf$timestamp, 1), tail(smpl_burst_sf$timestamp, 1))) %>% 
+  filter(individual_local_identifier == smpl_burst_sf$individual_local_identifier &
+         imu_burst_id %in% smpl_burst_sf$imu_burst_id) %>% 
+  #filter(between(start_timestamp, head(smpl_burst_sf$timestamp, 1), tail(smpl_burst_sf$timestamp, 1))) %>% 
   drop_na(start_location_long_closest_gps) %>% 
- # filter(track_flight_seg_id_Mode %in% smpl_burst_sf$track_flight_seg_id) %>% 
   st_as_sf(coords = c("start_location_long_closest_gps", "start_location_lat_closest_gps"), crs = wgs)
 
-mapview(smpl_burst_sf, alpha = 0, cex = 0.5) + mapview(smpl_8sec, zcol = "circling")
+mapview(smpl_burst_sf, zcol = "flight_type_sm3", alpha = 0, cex = 3) + mapview(smpl_8sec, zcol = "circling")
+
+#try another sample
+smpl_burst_sf2 <- or_summaries_w_gps %>% 
+  filter(individual_local_identifier == "D326_192" & imu_burst_id %in% c(757:756)) %>% 
+  drop_na("location_lat_closest_gps") %>% 
+  st_as_sf(coords = c("location_long_closest_gps", "location_lat_closest_gps"), crs = wgs)
+
+smpl_8sec <- or_8sec_circling_ys_no %>% 
+  filter(between(start_timestamp, head(smpl_burst_sf2$timestamp, 1), tail(smpl_burst_sf2$timestamp, 1))) %>% 
+  drop_na(start_location_long_closest_gps) %>% 
+  st_as_sf(coords = c("start_location_long_closest_gps", "start_location_lat_closest_gps"), crs = wgs)
+
+mapview(smpl_burst_sf2, zcol = "flight_type_sm3", alpha = 0, cex = 3) + mapview(smpl_8sec, zcol = "circling")
 
 
+
+
+### explore the distribution of yaw and roll ####
 #scatterplot of cumulative yaw and cumulative roll
 ggplot() +
   geom_point(data = or_summaries_w_gps, aes(x = cumulative_yaw, y = cumulative_roll))
@@ -186,16 +193,38 @@ ggplot() +
 #-------------------------------------------------------------------------------------
 
 #look at the relationship between yaw and roll. they should be highly correlated
-or_summaries_w_gps <- readRDS("matched_GPS_IMU/GPS_matched_or_w_summaries_8sec_Jul24.rds")
+or_8sec_summaries_w_gps <- readRDS("matched_GPS_IMU/GPS_matched_or_w_summaries_8sec_Jul24.rds")
+  
 
 #assign circling vs non-circling to values of yaw
-laterality_8sec <- or_summaries_w_gps %>% #this has one row per 8-9-sec burst 
-  filter(cumulative_yaw_8sec >= 20) %>%  #only keep thermalling flight
-  group_by(individual_local_identifier, date(start_timestamp)) %>% #group by individual ID and day
-  summarize(n_of_left = tally(cumulative_roll_8sec < 0),
-            n_of_right = tally(cumulative_roll_8sec > 0)) %>% 
-  mutate(laterality_index = (n_of_right - n_of_left)/(n_of_right + n_of_left))
+laterality_8sec <- or_8sec_summaries_w_gps %>% #this has one row per 8-9-sec burst 
+  filter(cumulative_yaw_8sec >= 45 | cumulative_yaw_8sec <= -45) %>%  #only keep thermalling flight. use a threshold of 45 degrees in 8 seconds.
+  mutate(bank_direction = ifelse(cumulative_roll_8sec < 0, "left",
+                                 ifelse(cumulative_roll_8sec > 0, "right", "straight")),
+         heading_direction = ifelse(cumulative_yaw_8sec < 0, "left",
+                                    ifelse(cumulative_yaw_8sec > 0, "right", "straight")),
+         unique_date = as.character(date(start_timestamp))) %>% 
+  group_by(individual_local_identifier, unique_date) %>% #group by individual ID and day
+  summarise(bank_left = sum(bank_direction == "left"),
+            bank_right = sum(bank_direction == "right"),
+            bank_straight = sum(bank_direction == "straight"),
+            heading_left = sum(heading_direction == "left"),
+            heading_right = sum(heading_direction == "right"),
+            heading_straight = sum(heading_direction == "straight"),
+            laterality_bank = (bank_right - bank_left)/(bank_right + bank_left),
+            laterality_heading = (heading_right - heading_left)/(heading_right + heading_left),
+            .groups = 'drop') %>% 
+  as.data.frame()
 
+  ##### add a step to remove days with small n of observations!!!
+
+
+##explore
+
+X11(width = 12, height = 12)
+ggplot() +
+  geom_point(data = laterality_8sec, aes(x = unique_date, y = laterality_bank)) +
+  facet_wrap(vars(individual_local_identifier))
 
 
 
