@@ -6,6 +6,8 @@ library(tidyverse)
 library(lubridate)
 library(sf)
 library(ggridges)
+library(mapview)
+library(viridis)
 
 setwd("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/R_files/")
 wgs <- st_crs("+proj=longlat +datum=WGS84 +no_defs")
@@ -17,7 +19,8 @@ birds_2023 <- c("D329_013", "D329_012", "D329_015", "D329_014", "D326_193", "D32
 #                             pattern = "rds", full.names = T)
 
 #open quat data- aggregated for every second, matched with gps-informed flight classification: prepared in 01b_imu_processing.r
-or_summaries_w_gps <- readRDS("matched_GPS_IMU/GPS_matched_or_w_summaries_Jul24.rds")
+or_summaries_w_gps <- readRDS("matched_GPS_IMU/GPS_matched_or_w_summaries_Jul24.rds") %>% 
+  drop_na(individual_local_identifier)
 
 
 #-------------------------------------------------------------------------------------
@@ -94,7 +97,7 @@ data_2023 %>%
             abs_median = median(abs(cumulative_yaw)),
             abs_min = min(abs(cumulative_yaw))) %>% 
   as.data.frame()
-
+ 
 #take 21 degrees (abs_median of circling, when both circling types are combined)
 
 data_circling <- data_2023 %>% 
@@ -112,14 +115,119 @@ mapview(circling_ys_no_sf[1:5000,], zcol = "circling_ys_no")
 #-------------------------------------------------------------------------------------
 #use cumulative roll for all individuals within circling bouts
 
-or_summaries_circling <- readRDS("matched_GPS_IMU/GPS_matched_or_w_summaries_Jul24.rds") %>% 
-  mutate(circling_ys_no = ifelse(cumulative_yaw > 16 | cumulative_yaw < -16, "circling", "not_circling")) %>% 
-  filter(circling_ys_no == "circling")
+# #based on summaries for each second
+# or_summaries_circling <- readRDS("matched_GPS_IMU/GPS_matched_or_w_summaries_Jul24.rds") %>% 
+#   mutate(circling_ys_no = ifelse(cumulative_yaw > 16 | cumulative_yaw < -16, "circling", "not_circling")) %>% 
+#   filter(circling_ys_no == "circling")
+# 
+# ggplot() +
+#   geom_point(data = or_summaries_circling, aes(x = timestamp, y = cumulative_roll)) +
+#   facet_wrap(~individual_local_identifier)
 
-ggplot() +
-  geom_point(data = or_summaries_circling, aes(x = timestamp, y = cumulative_roll)) +
-  facet_wrap(~individual_local_identifier)
+
+#based on summaries for each 8-second burst
+
+
+#or_8sec_summaries <- readRDS("quat_summaries_8secs_Jul24.rds")
+#cumulative yaw in the above file seems wrong. for now, calculate the cumulative yaw for the 8 second bursts using the summaries for each second
+or_summaries_w_gps <- readRDS("matched_GPS_IMU/GPS_matched_or_w_summaries_Jul24.rds") %>% 
+  drop_na(individual_local_identifier)
+
+## add a burst ID for 8-second bursts (same code was used in MS1_IMU_classification/01b_imu_processing.r)
+or_8sec_summaries <- or_summaries_w_gps %>% 
+  group_by(individual_local_identifier) %>% 
+  arrange(timestamp, .by_group = T) %>% 
+  #the burst assignments are correct, but burst lengths are different depending on the year, etc. for the sake of uniformity, assign new burst ids that break up the data into 8 seconds
+  mutate(timelag = c(0, diff(timestamp)),  #calculate time lag 
+         burst_id_8sec = cumsum(timelag > 8),
+         unique_burst_id_8sec = paste0(individual_local_identifier, "_", burst_id_8sec)) %>% 
+  ungroup() #%>%
+  #aggregate summarized angles over 8 seconds
+  group_by(unique_burst_id_8sec) %>% #this variable already has individual ID in it. So no need to group by ind_id AND burst_id
+  summarize(across(c(study_id, individual_taxon_canonical_name, individual_local_identifier, orientation_quaternions_sampling_frequency,
+                     tag_local_identifier, tag_id, imu_burst_id, burst_duration), ~head(.,1)),
+            across(c(yaw_sd, roll_sd, pitch_sd,
+                     yaw_mean, roll_mean, pitch_mean,
+                     yaw_min, roll_min, pitch_min,
+                     yaw_max, roll_max, pitch_max), 
+                   ~mean(., na.rm = T),
+                   .names = "mean_{.col}"), #rename the column, because these values are the mean of the sd, max, min values across the 8 seconds
+            across(c(cumulative_yaw, cumulative_roll, cumulative_pitch),
+                   ~sum(., na.rm = T),
+                   .names = "{.col}_8sec"),
+            across(c(timestamp, location_lat_closest_gps, location_long_closest_gps, height_above_ellipsoid_closest_gps), 
+                   ~head(.,1),
+                   .names = "start_{.col}"),
+            across(c(flight_type_sm2, flight_type_sm3, track_flight_seg_id),
+                   ~Mode(.), #make sure the Model function is defined
+                   .names = "{.col}_Mode"),
+            .groups = "keep") %>% 
+  ungroup %>% 
+  as.data.frame()
+
+saveRDS(or_8sec_summaries, "matched_GPS_IMU/GPS_matched_or_w_summaries_8sec_Jul24.rds") #this doesn't have the NA individual
+
+#assign circling vs non-circling to values of yaw
+or_8sec_circling_ys_no <- or_8sec_summaries %>% 
+  mutate(circling = ifelse(cumulative_yaw_8sec >= 20 | cumulative_yaw_8sec <= -20, "yes", "no"))
+
+#look at the distribution of circling vs not, on the map
+
+world <- st_read("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/GIS_files/continent_shapefile/World_Continents.shp") %>% 
+  st_crop(xmin = -17, xmax = 43, ymin = -35.6, ymax = 67) %>%
+  st_union()
+
+#create a rectangle to be the oceans
+Polycoords <- data.frame(long = c(-17,43),
+                         lat = c(-35.6,67))
+
+pol <- st_polygon(
+  list(
+    cbind(
+      Polycoords$lon[c(1,2,2,1,1)], 
+      Polycoords$lat[c(1,1,2,2,1)])
+  )
+) %>% 
+  st_sfc(crs = wgs)
+
+
+X11(width = 13, height = 15)
+(circling_p <- ggplot()+
+  geom_sf(data = pol, fill = "powderblue", col = "powderblue") +
+  geom_sf(data = world, fill = "white", col = "white") +
+  coord_sf(xlim = c(-17, 38), ylim = c(2, 65), expand = FALSE) +
+  geom_point(data = or_8sec_circling_ys_no %>% arrange(individual_local_identifier, start_timestamp) %>% drop_na(start_location_long_closest_gps), 
+            aes(x = start_location_long_closest_gps, 
+                y = start_location_lat_closest_gps, 
+                col = circling), size = 1.2)
+) 
+  
+  
+#check the circling assignments with the 1Hz GPS data for a subset
+#use smpl_burst_sf from above
+
+smpl_8sec <- or_8sec_circling_ys_no %>% 
+  filter(between(start_timestamp, head(smpl_burst_sf$timestamp, 1), tail(smpl_burst_sf$timestamp, 1))) %>% 
+  drop_na(start_location_long_closest_gps) %>% 
+ # filter(track_flight_seg_id_Mode %in% smpl_burst_sf$track_flight_seg_id) %>% 
+  st_as_sf(coords = c("start_location_long_closest_gps", "start_location_lat_closest_gps"), crs = wgs)
+
+mapview(smpl_burst_sf, alpha = 0, cex = 0.5) + mapview(smpl_8sec, zcol = "circling")
 
 #-------------------------------------------------------------------------------------
 # STEP3: Calculate degree of handedness
 #-------------------------------------------------------------------------------------
+
+#look at the relationship between yaw and roll. they should be highly correlated
+or_summaries_w_gps <- readRDS("matched_GPS_IMU/GPS_matched_or_w_summaries_8sec_Jul24.rds")
+
+#scatterplot of cumulative yaw and cumulative roll
+ggplot() +
+  geom_point(data = or_summaries_w_gps, aes(x = cumulative_yaw, y = cumulative_roll))
+
+
+
+
+
+
+
