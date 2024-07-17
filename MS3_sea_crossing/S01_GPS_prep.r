@@ -19,7 +19,7 @@ wgs <- st_crs("+proj=longlat +datum=WGS84 +no_defs")
 setwd("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/")
 
 # STEP 1: open all GPS data and filter for latitudes #####
-gps <- readRDS("data/all_gps_nov_6_23.rds") %>%
+gps <- readRDS("data/all_gps_apr15_24.rds") %>%
   as.data.frame() %>%
   filter(between(location_lat,53.5,61.05) | between(location_lat, 28.9,46.49))
 

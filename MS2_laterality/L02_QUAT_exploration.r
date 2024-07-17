@@ -126,46 +126,8 @@ mapview(circling_ys_no_sf[1:5000,], zcol = "circling_ys_no")
 
 
 #based on summaries for each 8-second burst
+or_8sec_summaries <- readRDS("matched_GPS_IMU/GPS_matched_or_w_summaries_8sec_Jul24.rds")
 
-
-#or_8sec_summaries <- readRDS("quat_summaries_8secs_Jul24.rds")
-#cumulative yaw in the above file seems wrong. for now, calculate the cumulative yaw for the 8 second bursts using the summaries for each second
-or_summaries_w_gps <- readRDS("matched_GPS_IMU/GPS_matched_or_w_summaries_Jul24.rds") %>% 
-  drop_na(individual_local_identifier)
-
-## add a burst ID for 8-second bursts (same code was used in MS1_IMU_classification/01b_imu_processing.r)
-or_8sec_summaries <- or_summaries_w_gps %>% 
-  group_by(individual_local_identifier) %>% 
-  arrange(timestamp, .by_group = T) %>% 
-  #the burst assignments are correct, but burst lengths are different depending on the year, etc. for the sake of uniformity, assign new burst ids that break up the data into 8 seconds
-  mutate(timelag = c(0, diff(timestamp)),  #calculate time lag 
-         burst_id_8sec = cumsum(timelag > 8),
-         unique_burst_id_8sec = paste0(individual_local_identifier, "_", burst_id_8sec)) %>% 
-  ungroup() #%>%
-  #aggregate summarized angles over 8 seconds
-  group_by(unique_burst_id_8sec) %>% #this variable already has individual ID in it. So no need to group by ind_id AND burst_id
-  summarize(across(c(study_id, individual_taxon_canonical_name, individual_local_identifier, orientation_quaternions_sampling_frequency,
-                     tag_local_identifier, tag_id, imu_burst_id, burst_duration), ~head(.,1)),
-            across(c(yaw_sd, roll_sd, pitch_sd,
-                     yaw_mean, roll_mean, pitch_mean,
-                     yaw_min, roll_min, pitch_min,
-                     yaw_max, roll_max, pitch_max), 
-                   ~mean(., na.rm = T),
-                   .names = "mean_{.col}"), #rename the column, because these values are the mean of the sd, max, min values across the 8 seconds
-            across(c(cumulative_yaw, cumulative_roll, cumulative_pitch),
-                   ~sum(., na.rm = T),
-                   .names = "{.col}_8sec"),
-            across(c(timestamp, location_lat_closest_gps, location_long_closest_gps, height_above_ellipsoid_closest_gps), 
-                   ~head(.,1),
-                   .names = "start_{.col}"),
-            across(c(flight_type_sm2, flight_type_sm3, track_flight_seg_id),
-                   ~Mode(.), #make sure the Model function is defined
-                   .names = "{.col}_Mode"),
-            .groups = "keep") %>% 
-  ungroup %>% 
-  as.data.frame()
-
-saveRDS(or_8sec_summaries, "matched_GPS_IMU/GPS_matched_or_w_summaries_8sec_Jul24.rds") #this doesn't have the NA individual
 
 #assign circling vs non-circling to values of yaw
 or_8sec_circling_ys_no <- or_8sec_summaries %>% 
@@ -214,6 +176,11 @@ smpl_8sec <- or_8sec_circling_ys_no %>%
 
 mapview(smpl_burst_sf, alpha = 0, cex = 0.5) + mapview(smpl_8sec, zcol = "circling")
 
+
+#scatterplot of cumulative yaw and cumulative roll
+ggplot() +
+  geom_point(data = or_summaries_w_gps, aes(x = cumulative_yaw, y = cumulative_roll))
+
 #-------------------------------------------------------------------------------------
 # STEP3: Calculate degree of handedness
 #-------------------------------------------------------------------------------------
@@ -221,12 +188,13 @@ mapview(smpl_burst_sf, alpha = 0, cex = 0.5) + mapview(smpl_8sec, zcol = "circli
 #look at the relationship between yaw and roll. they should be highly correlated
 or_summaries_w_gps <- readRDS("matched_GPS_IMU/GPS_matched_or_w_summaries_8sec_Jul24.rds")
 
-#scatterplot of cumulative yaw and cumulative roll
-ggplot() +
-  geom_point(data = or_summaries_w_gps, aes(x = cumulative_yaw, y = cumulative_roll))
-
-
-
+#assign circling vs non-circling to values of yaw
+laterality_8sec <- or_summaries_w_gps %>% #this has one row per 8-9-sec burst 
+  filter(cumulative_yaw_8sec >= 20) %>%  #only keep thermalling flight
+  group_by(individual_local_identifier, date(start_timestamp)) %>% #group by individual ID and day
+  summarize(n_of_left = tally(cumulative_roll_8sec < 0),
+            n_of_right = tally(cumulative_roll_8sec > 0)) %>% 
+  mutate(laterality_index = (n_of_right - n_of_left)/(n_of_right + n_of_left))
 
 
 

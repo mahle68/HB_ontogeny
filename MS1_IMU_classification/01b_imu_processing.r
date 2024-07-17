@@ -275,6 +275,8 @@ or_seconds_8_sec_id <- burst_n %>%
                                 paste0(individual_local_identifier, "_", imu_burst_id, "_", 1), burst_id_8sec)) %>% #assign unique 8-sec burst ID to bursts that were less than 9 seconds long to begin with. use 1 because they each have one sub-burst.
   as.data.frame()
 
+saveRDS(or_seconds_8_sec_id, "matched_GPS_IMU/GPS_matched_or_w_summaries_8secIDs_Jul24.rds") #also write this to file, so I can easily access the raw values for each 8sec-burst just in case
+
 
 # calculate summaries of angles for each 8-sec burst
 (start_time <- Sys.time())
@@ -297,12 +299,13 @@ or_8sec_summaries <- or_seconds_8_sec_id %>%
                    ~head(.,1),
                    .names = "start_{.col}"),
             across(c(flight_type_sm2, flight_type_sm3, track_flight_seg_id),
-                   ~Mode(.), #make sure the Model function is defined
+                   ~Mode(.), #make sure the Mode function is defined
                    .names = "{.col}_Mode"),
+            end_timestamp = tail(timestamp,1),
             .groups = "keep") %>% 
   ungroup %>% 
   as.data.frame()
-(Sys.time() - start_time)
+(Sys.time() - start_time) #17.3 minutes
 
 saveRDS(or_8sec_summaries, "matched_GPS_IMU/GPS_matched_or_w_summaries_8sec_Jul24.rds") #this doesn't have the NA individual
 
