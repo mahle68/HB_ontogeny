@@ -47,7 +47,7 @@ laterality_8sec_LS <- laterality_8sec %>%
 # STEP2: some plotting
 #-------------------------------------------------------------------------------------
 
-#### ridgelines
+#### ridgelines for laterality in banking angle
 ggplot(laterality_8sec_LS, aes(x = laterality_bank, y = individual_local_identifier)) +
   stat_density_ridges(quantile_lines = TRUE, rel_min_height = 0.01, alpha = 0.5,
                       jittered_points = TRUE, 
@@ -56,6 +56,16 @@ ggplot(laterality_8sec_LS, aes(x = laterality_bank, y = individual_local_identif
   facet_wrap(vars(factor(life_stage, levels = c("post-fledging", "migration", "wintering")))) +
   theme_minimal()
 
+#### ridgelines for laterality in heading
+ggplot(laterality_8sec_LS, aes(x = laterality_heading, y = individual_local_identifier)) +
+  stat_density_ridges(quantile_lines = TRUE, rel_min_height = 0.01, alpha = 0.5,
+                      jittered_points = TRUE, 
+                      point_shape = "|", point_size = 1, point_alpha = 1, size = 0.2) + #Trailing tails can be cut off using the rel_min_height aesthetic.
+  geom_vline(xintercept = 0, linetype = "dashed", color = "red") +
+  facet_wrap(vars(factor(life_stage, levels = c("post-fledging", "migration", "wintering")))) +
+  theme_minimal()
+
+########old stuff
 X11(width = 12, height = 12)
 ggplot(data = pre_winter, aes(x = unique_date, y = laterality_bank)) +
   geom_point() +

@@ -189,23 +189,28 @@ ggplot() +
   geom_point(data = or_summaries_w_gps, aes(x = cumulative_yaw, y = cumulative_roll))
 
 #-------------------------------------------------------------------------------------
-# STEP3: Calculate degree of handedness
+# STEP3: Calculate degree of handedness for each day
 #-------------------------------------------------------------------------------------
 
 #look at the relationship between yaw and roll. they should be highly correlated
 or_8sec_summaries_w_gps <- readRDS("matched_GPS_IMU/GPS_matched_or_w_summaries_8sec_Jul24.rds")
-  
 
+#---------------------- calculate laterality for each day
 #assign circling vs non-circling to values of yaw
 laterality_8sec <- or_8sec_summaries_w_gps %>% #this has one row per 8-9-sec burst 
-  filter(cumulative_yaw_8sec >= 45 | cumulative_yaw_8sec <= -45) %>%  #only keep thermalling flight. use a threshold of 45 degrees in 8 seconds.
+  mutate(burst_dur2 = difftime(end_timestamp, start_timestamp)) %>% 
+  filter(burst_dur2 > 6.5 &  #remove bursts that are shorter than 6.5 seconds
+           cumulative_yaw_8sec >= 45 | cumulative_yaw_8sec <= -45) %>%  #only keep thermalling flight. use a threshold of 45 degrees in 8 seconds.
   mutate(bank_direction = ifelse(cumulative_roll_8sec < 0, "left",
                                  ifelse(cumulative_roll_8sec > 0, "right", "straight")),
          heading_direction = ifelse(cumulative_yaw_8sec < 0, "left",
                                     ifelse(cumulative_yaw_8sec > 0, "right", "straight")),
-         unique_date = as.character(date(start_timestamp))) %>% 
+         unique_date = as.character(date(start_timestamp)),
+         yday = yday(start_timestamp)) %>% #this will make it easier to filter later for life cycle stages 
   group_by(individual_local_identifier, unique_date) %>% #group by individual ID and day
-  summarise(bank_left = sum(bank_direction == "left"),
+  summarise(n_bursts_in_day = n(),
+            yday = head(yday, 1),
+            bank_left = sum(bank_direction == "left"),
             bank_right = sum(bank_direction == "right"),
             bank_straight = sum(bank_direction == "straight"),
             heading_left = sum(heading_direction == "left"),
@@ -216,15 +221,72 @@ laterality_8sec <- or_8sec_summaries_w_gps %>% #this has one row per 8-9-sec bur
             .groups = 'drop') %>% 
   as.data.frame()
 
-  ##### add a step to remove days with small n of observations!!!
-
+saveRDS(laterality_8sec, file = "laterality_index_per_day.rds")
 
 ##explore
-
 X11(width = 12, height = 12)
-ggplot() +
-  geom_point(data = laterality_8sec, aes(x = unique_date, y = laterality_bank)) +
+ggplot(data = laterality_8sec, aes(x = unique_date, y = laterality_bank)) +
+  geom_point() +
+  geom_smooth( method = "loess") +
   facet_wrap(vars(individual_local_identifier))
 
+### one day has > 1000 bursts. explore why
+long_day <- laterality_8sec %>%  filter(n_bursts_in_day > 1000)
+long_day_all <- or_8sec_summaries_w_gps %>%  filter(as.character(date(start_timestamp)) == long_day$unique_date & individual_local_identifier == long_day$individual_local_identifier)
 
+long_day_sf <- long_day_all %>% 
+  drop_na( "start_location_long_closest_gps" ) %>% 
+  st_as_sf(coords = c("start_location_long_closest_gps", "start_location_lat_closest_gps"), crs = wgs) # seems legit! lol
+
+### there are lots of days with one observation
+
+short_day <- laterality_8sec %>%  filter(n_bursts_in_day == 1) %>% 
+  mutate(unique_ind_day = paste0(individual_local_identifier, "_", unique_date))
+
+
+short_day_all <- or_8sec_summaries_w_gps %>%
+  mutate(unique_ind_day = paste0(individual_local_identifier, "_", as.character(date(start_timestamp)))) %>% 
+  filter(unique_ind_day %in% short_day$unique_ind_day)
+
+short_day_sf <- short_day_all %>% 
+  drop_na("start_location_long_closest_gps" ) %>% 
+  st_as_sf(coords = c("start_location_long_closest_gps", "start_location_lat_closest_gps"), crs = wgs) # seems legit! lol
+
+mapview(short_day_sf) #mainly during the wintering OR the breeding season.
+
+
+#-------------------------------------------------------------------------------------
+# STEP3: Calculate degree of handedness for each day
+#-------------------------------------------------------------------------------------
+
+#open quat data- aggregated for every second, matched with gps-informed flight classification: prepared in 01b_imu_processing.r
+or_summaries_w_gps <- readRDS("matched_GPS_IMU/GPS_matched_or_w_summaries_8secIDs_Jul24.rds") %>% #this version also has the IDs assigned to 8-sec bursts.
+  drop_na(individual_local_identifier)
+
+# #open the dataframe with one-second data. filter for circl
+# #---------------------- calculate laterality for each 8-second burst
+# #assign circling vs non-circling to values of yaw
+# laterality_8sec <- or_8sec_summaries_w_gps %>% #this has one row per 8-9-sec burst 
+#   mutate(burst_dur2 = difftime(end_timestamp, start_timestamp)) %>% 
+#   filter(burst_dur2 > 6.5 &  #remove bursts that are shorter than 6.5 seconds
+#            cumulative_yaw_8sec >= 45 | cumulative_yaw_8sec <= -45) %>%  #only keep thermalling flight. use a threshold of 45 degrees in 8 seconds.
+#   mutate(bank_direction = ifelse(cumulative_roll_8sec < 0, "left",
+#                                  ifelse(cumulative_roll_8sec > 0, "right", "straight")),
+#          heading_direction = ifelse(cumulative_yaw_8sec < 0, "left",
+#                                     ifelse(cumulative_yaw_8sec > 0, "right", "straight")),
+#          unique_date = as.character(date(start_timestamp)),
+#          yday = yday(start_timestamp)) %>% #this will make it easier to filter later for life cycle stages 
+#   group_by(individual_local_identifier, unique_date) %>% #group by individual ID and day
+#   summarise(n_bursts_in_day = n(),
+#             yday = head(yday, 1),
+#             bank_left = sum(bank_direction == "left"),
+#             bank_right = sum(bank_direction == "right"),
+#             bank_straight = sum(bank_direction == "straight"),
+#             heading_left = sum(heading_direction == "left"),
+#             heading_right = sum(heading_direction == "right"),
+#             heading_straight = sum(heading_direction == "straight"),
+#             laterality_bank = (bank_right - bank_left)/(bank_right + bank_left),
+#             laterality_heading = (heading_right - heading_left)/(heading_right + heading_left),
+#             .groups = 'drop') %>% 
+#   as.data.frame()
 
