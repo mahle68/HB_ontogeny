@@ -65,6 +65,10 @@ ggplot(laterality_8sec_LS, aes(x = laterality_heading, y = individual_local_iden
   facet_wrap(vars(factor(life_stage, levels = c("post-fledging", "migration", "wintering")))) +
   theme_minimal()
 
+#there is a pattern of higher laterality before migration, but the sample sizes are too small. So, calculate laterality for each 8-second burst and look at the distributions there. Continued in L03b_tests_per_burst.r
+
+
+
 ########old stuff
 X11(width = 12, height = 12)
 ggplot(data = pre_winter, aes(x = unique_date, y = laterality_bank)) +

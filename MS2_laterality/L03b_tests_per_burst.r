@@ -25,15 +25,17 @@ life_cycle <- read.csv("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gw
   filter(nest_country == "Finland")
 
 #create new columns for life cycle stage AND day and week since tagging (proxy for age) 
+(start_time <- Sys.time())
 laterality_1sec_LS <- laterality_1sec %>%
-  full_join(life_cycle %>% select(ring_ID, migration_start, migration_end), by = c("individual_local_identifier" = "ring_ID")) %>% 
+  full_join(life_cycle %>% select(ring_ID, deployment_dt_utc, migration_start, migration_end), by = c("individual_local_identifier" = "ring_ID")) %>% 
   rowwise() %>% 
   mutate(life_stage = case_when(
     between(start_timestamp, migration_start, migration_end) ~ "migration",
     start_timestamp < migration_start ~ "post-fledging",
     start_timestamp > migration_end ~ "wintering",
     TRUE ~ NA_character_
-  )) %>% 
+  ),
+  day_since_tagging = floor(difftime(start_timestamp, as.POSIXct(deployment_dt_utc), unit = "days"))) %>% 
   ungroup() %>% 
   mutate(life_stage = case_when(
     is.na(life_stage) & start_timestamp < as.Date("2023-09-15") ~ "post-fledging",
@@ -41,71 +43,50 @@ laterality_1sec_LS <- laterality_1sec %>%
     is.na(life_stage) & between(start_timestamp, as.Date("2023-09-15"), as.Date("2023-10-20")) ~ "wintering",
     TRUE ~ life_stage
   )) %>%
-  filter(n_bursts_in_day >= 3) %>% #filter for number of IMU bursts per day.  
   as.data.frame()
+Sys.time() - start_time #9 minutes
+
+saveRDS(laterality_1sec_LS, "laterality_index_per_8sec_burst_LS.rds")
+
+#filter for circling flight only
+laterality_circling <- laterality_1sec_LS %>% 
+  #mutate(burst_dur2 = difftime(end_timestamp, start_timestamp)) %>% ## OR use the n of records for this. that would be the number of rows
+  #filter(burst_dur2 > 6.5 &  #remove bursts that are shorter than 6.5 seconds
+  filter(n_records > 6.5 &  #remove bursts that are shorter than 6.5 seconds
+           cumulative_yaw_8sec >= 45 | cumulative_yaw_8sec <= -45) %>%  #only keep thermalling flight. use a threshold of 45 degrees in 8 seconds.
+  as.data.frame()
+  
 
 #-------------------------------------------------------------------------------------
 # STEP2: some plotting
 #-------------------------------------------------------------------------------------
 
 #### ridgelines for laterality in banking angle
-ggplot(laterality_8sec_LS, aes(x = laterality_bank, y = individual_local_identifier)) +
-  stat_density_ridges(quantile_lines = TRUE, rel_min_height = 0.01, alpha = 0.5,
+ggplot(laterality_circling, aes(x = laterality_bank, y = individual_local_identifier)) +
+  stat_density_ridges(quantile_lines = TRUE, quantiles = 2, rel_min_height = 0.01, alpha = 0.5,
                       jittered_points = TRUE, 
                       point_shape = "|", point_size = 1, point_alpha = 1, size = 0.2) + #Trailing tails can be cut off using the rel_min_height aesthetic.
   geom_vline(xintercept = 0, linetype = "dashed", color = "red") +
   facet_wrap(vars(factor(life_stage, levels = c("post-fledging", "migration", "wintering")))) +
   theme_minimal()
+
+ggplot(laterality_circling, aes(x = laterality_bank, y = individual_local_identifier, fill = life_stage)) +
+  stat_density_ridges(quantile_lines = TRUE, quantiles = 2, rel_min_height = 0.01, alpha = 0.5,
+                      jittered_points = TRUE, 
+                      point_shape = "|", point_size = 1, point_alpha = 1, size = 0.2) + 
+  geom_vline(xintercept = 0, linetype = "dashed", color = "red") +
+  scale_fill_manual(values = c("post-fledging" = "yellow", "migration" = "#c4c4fc", "wintering" = "red")) +
+  theme_minimal() +
+  labs(fill = "Life Stage")
+
 
 #### ridgelines for laterality in heading
-ggplot(laterality_8sec_LS, aes(x = laterality_heading, y = individual_local_identifier)) +
+ggplot(laterality_circling, aes(x = laterality_heading, y = individual_local_identifier)) +
   stat_density_ridges(quantile_lines = TRUE, rel_min_height = 0.01, alpha = 0.5,
                       jittered_points = TRUE, 
                       point_shape = "|", point_size = 1, point_alpha = 1, size = 0.2) + #Trailing tails can be cut off using the rel_min_height aesthetic.
   geom_vline(xintercept = 0, linetype = "dashed", color = "red") +
   facet_wrap(vars(factor(life_stage, levels = c("post-fledging", "migration", "wintering")))) +
   theme_minimal()
-
-########old stuff
-X11(width = 12, height = 12)
-ggplot(data = pre_winter, aes(x = unique_date, y = laterality_bank)) +
-  geom_point() +
-  geom_smooth( method = "gam") +
-  facet_wrap(vars(individual_local_identifier))
-
-ggplot(pre_winter, aes(x = unique_date, y = laterality_bank, group = individual_local_identifier)) +
-  geom_point(alpha = 0.5) +  # Add points with some transparency
-  geom_smooth(method = "loess", se = FALSE) +  # Add smooth curves for each individual
-  labs(title = "Daily Laterality Index",
-       x = "Date",
-       y = "Laterality Index") +
-  theme_minimal() +
-  theme(legend.position = "right") +
-  scale_color_viridis_d() 
-
-#look at a linear model
-library(lme4)
-
-# Assuming `individual` is a factor indicating individual subjects
-model <- lmer(laterality_bank ~ (1|individual_local_identifier), data = pre_winter)
-model <- lmer(laterality_bank ~ unique_date + (1|individual_local_identifier), data = pre_winter)
-summary(model)
-
-library(rptR)
-
-rpt_model <- rpt(laterality_bank ~ (1|individual_local_identifier), grname = "individual_local_identifier", data = pre_winter, datatype = "Gaussian")
-summary(rpt_model)
-
-
-####gam
-
-pre_winter <- pre_winter %>% 
-  mutate(unique_date = as.Date(unique_date),
-         individual_local_identifier = as.factor(individual_local_identifier))
-
-gam_model <- gam(laterality_bank ~ s(unique_date, by = individual_local_identifier, bs = "fs", k = 10) + individual_local_identifier, 
-                 data = pre_winter, method = "REML")
-
-
 
 

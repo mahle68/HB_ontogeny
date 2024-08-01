@@ -303,7 +303,6 @@ laterality_1sec <- or_summaries_w_gps %>% #this has one row per seconds
             .groups = "keep") %>% 
   ungroup %>% 
   as.data.frame()
-
   #this is basically the same as GPS_matched_or_w_summaries_8sec_Jul24.rds in 01b_imu_processing.r, but with laterality index added
 
 saveRDS(laterality_1sec, file = "laterality_index_per_8sec_burst.rds")
