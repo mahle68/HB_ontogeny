@@ -11,6 +11,9 @@ library(mapview)
 library(viridis)
 library(lme4)
 
+setwd("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/R_files/")
+
+
 #-------------------------------------------------------------------------------------
 # STEP1: annotate data with life cycle stage
 #-------------------------------------------------------------------------------------
@@ -19,42 +22,56 @@ library(lme4)
 #this file contains laterality index calculated per burst. NOT filtered for circling flight
 laterality_1sec <- readRDS("laterality_index_per_8sec_burst.rds")
 
-#use Ellen's life cycle stage estimations
-life_cycle <- read.csv("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/data/EHB_metadata_mig_dates_Fin22.csv") %>% 
-  mutate_at(c("migration_start", "migration_end"), as.Date) %>% 
-  filter(nest_country == "Finland")
+#open meta-data to calculate day since tagging
+meta_data <- read.csv("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/data/EHB_metadata - Sheet1.csv") %>% 
+  mutate(deployment_dt_utc = as.POSIXct(deployment_dt_utc, tz = "UTC"))
 
-#create new columns for life cycle stage AND day and week since tagging (proxy for age) 
-(start_time <- Sys.time())
-laterality_1sec_LS <- laterality_1sec %>%
-  full_join(life_cycle %>% select(ring_ID, deployment_dt_utc, migration_start, migration_end), by = c("individual_local_identifier" = "ring_ID")) %>% 
+laterality_1sec_days <- laterality_1sec %>%
+  mutate(individual_local_identifier = as.character(individual_local_identifier)) %>% 
+  full_join(meta_data %>% select(ring_ID, deployment_dt_utc), by = c("individual_local_identifier" = "ring_ID")) %>% 
   rowwise() %>% 
-  mutate(life_stage = case_when(
-    between(start_timestamp, migration_start, migration_end) ~ "migration",
-    start_timestamp < migration_start ~ "post-fledging",
-    start_timestamp > migration_end ~ "wintering",
-    TRUE ~ NA_character_
-  ),
-  day_since_tagging = floor(difftime(start_timestamp, as.POSIXct(deployment_dt_utc), unit = "days"))) %>% 
+  mutate(days_since_tagging = floor(difftime(start_timestamp, deployment_dt_utc, unit = "days"))) %>% 
   ungroup() %>% 
-  mutate(life_stage = case_when(
-    is.na(life_stage) & start_timestamp < as.Date("2023-09-15") ~ "post-fledging",
-    is.na(life_stage) & start_timestamp > as.Date("2023-10-20") ~ "migration",
-    is.na(life_stage) & between(start_timestamp, as.Date("2023-09-15"), as.Date("2023-10-20")) ~ "wintering",
-    TRUE ~ life_stage
-  )) %>%
   as.data.frame()
-Sys.time() - start_time #9 minutes
 
-saveRDS(laterality_1sec_LS, "laterality_index_per_8sec_burst_LS.rds")
+saveRDS(laterality_1sec_days, "laterality_index_per_8sec_burst_days_since.rds")
 
-#filter for circling flight only
-laterality_circling <- laterality_1sec_LS %>% 
-  #mutate(burst_dur2 = difftime(end_timestamp, start_timestamp)) %>% ## OR use the n of records for this. that would be the number of rows
-  #filter(burst_dur2 > 6.5 &  #remove bursts that are shorter than 6.5 seconds
-  filter(n_records > 6.5 &  #remove bursts that are shorter than 6.5 seconds
-           cumulative_yaw_8sec >= 45 | cumulative_yaw_8sec <= -45) %>%  #only keep thermalling flight. use a threshold of 45 degrees in 8 seconds.
-  as.data.frame()
+# #use Ellen's life cycle stage estimations
+# life_cycle <- read.csv("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/data/EHB_metadata_mig_dates_Fin22.csv") %>% 
+#   mutate_at(c("migration_start", "migration_end"), as.Date) %>% 
+#   filter(nest_country == "Finland")
+# 
+# #create new columns for life cycle stage AND day and week since tagging (proxy for age) 
+# (start_time <- Sys.time())
+# laterality_1sec_LS <- laterality_1sec %>%
+#   full_join(life_cycle %>% select(ring_ID, deployment_dt_utc, migration_start, migration_end), by = c("individual_local_identifier" = "ring_ID")) %>% 
+#   rowwise() %>% 
+#   mutate(life_stage = case_when(
+#     between(start_timestamp, migration_start, migration_end) ~ "migration",
+#     start_timestamp < migration_start ~ "post-fledging",
+#     start_timestamp > migration_end ~ "wintering",
+#     TRUE ~ NA_character_
+#   ),
+#   day_since_tagging = floor(difftime(start_timestamp, as.POSIXct(deployment_dt_utc), unit = "days"))) %>% 
+#   ungroup() %>% 
+#   mutate(life_stage = case_when(
+#     is.na(life_stage) & start_timestamp < as.Date("2023-09-15") ~ "post-fledging",
+#     is.na(life_stage) & start_timestamp > as.Date("2023-10-20") ~ "migration",
+#     is.na(life_stage) & between(start_timestamp, as.Date("2023-09-15"), as.Date("2023-10-20")) ~ "wintering",
+#     TRUE ~ life_stage
+#   )) %>%
+#   as.data.frame()
+# Sys.time() - start_time #9 minutes
+# 
+# saveRDS(laterality_1sec_LS, "laterality_index_per_8sec_burst_LS.rds")
+
+# #filter for circling flight only
+# laterality_circling <- laterality_1sec_LS %>% 
+#   #mutate(burst_dur2 = difftime(end_timestamp, start_timestamp)) %>% ## OR use the n of records for this. that would be the number of rows
+#   #filter(burst_dur2 > 6.5 &  #remove bursts that are shorter than 6.5 seconds
+#   filter(n_records > 6.5 &  #remove bursts that are shorter than 6.5 seconds
+#            cumulative_yaw_8sec >= 45 | cumulative_yaw_8sec <= -45) %>%  #only keep thermalling flight. use a threshold of 45 degrees in 8 seconds.
+#   as.data.frame()
   
 
 #-------------------------------------------------------------------------------------

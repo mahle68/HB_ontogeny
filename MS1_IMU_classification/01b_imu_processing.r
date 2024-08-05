@@ -176,8 +176,7 @@ gps_ls <- list.files("gps_seg_apr24", full.names = T) %>% #these are sf files
   bind_rows() %>% 
   mutate(row_id = row_number(), #assign a row id to be able to cbind the annotated data with the original data later on
          location_long = st_coordinates(.)[,1],
-         location_lat = st_coordinates(.)[,2],
-         row_id = row_number()) %>% #add row id for ease of merging with annotation data later on
+         location_lat = st_coordinates(.)[,2]) %>% 
   st_drop_geometry() %>% 
   group_by(individual_local_identifier) %>% 
   group_split() %>% 
