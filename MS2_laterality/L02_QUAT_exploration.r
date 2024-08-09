@@ -156,7 +156,7 @@ X11(width = 10, height = 15)
                 col = circling), size = 1.2)
 )
   
-### check the circling assignments with the 1Hz GPS data for a subset ####
+### check the circling assignments with the 1Hz GPS data for a subset 
 #use smpl_burst_sf from above
 
 smpl_8sec <- or_8sec_circling_ys_no %>% 
@@ -267,6 +267,7 @@ or_summaries_w_gps <- readRDS("matched_GPS_IMU/GPS_matched_or_w_summaries_8secID
 #---------------------- calculate laterality for each 8-second burst
 #this is not filtered for circling/not OR the length of bursts
 
+(st_time <- Sys.time())
 laterality_1sec <- or_summaries_w_gps %>% #this has one row per seconds
   mutate(bank_direction = ifelse(cumulative_roll < 0, "left",
                                  ifelse(cumulative_roll > 0, "right", "straight")),
@@ -301,8 +302,61 @@ laterality_1sec <- or_summaries_w_gps %>% #this has one row per seconds
             laterality_bank = (bank_right - bank_left)/(bank_right + bank_left),
             laterality_heading = (heading_right - heading_left)/(heading_right + heading_left),
             .groups = "keep") %>% 
-  ungroup %>% 
+  ungroup() %>% 
   as.data.frame()
+Sys.time() - st_time # 8 minutes
   #this is basically the same as GPS_matched_or_w_summaries_8sec_Jul24.rds in 01b_imu_processing.r, but with laterality index added
 
 saveRDS(laterality_1sec, file = "laterality_index_per_8sec_burst.rds")
+
+#-------------------------------------------------------------------------------------
+# STEP4: Calculate degree of handedness for each second
+#-------------------------------------------------------------------------------------
+#the code needs to be modified. it is really just a copy paste from above
+# #open quat data- in original resolution, with one second per row (not aggregated) but with euler angles calculated: prepared in 01b_imu_processing.r
+# or_angles_raw <- readRDS("quat_angles_secs_apr24.rds") %>% 
+#   drop_na(individual_local_identifier)
+# 
+# (st_time <- Sys.time())
+# laterality_1sec <- or_summaries_w_gps %>% #this has one row per seconds
+#   mutate(bank_direction = ifelse(cumulative_roll < 0, "left",
+#                                  ifelse(cumulative_roll > 0, "right", "straight")),
+#          heading_direction = ifelse(cumulative_yaw < 0, "left",
+#                                     ifelse(cumulative_yaw > 0, "right", "straight"))) %>% #this will make it easier to filter later for life cycle stages
+#   group_by(burst_id_8sec) %>% #group by 8-sec burst IDs, which are unique across individuals
+#   summarize(across(c(study_id, individual_taxon_canonical_name, individual_local_identifier, orientation_quaternions_sampling_frequency,
+#                      tag_local_identifier, tag_id, imu_burst_id, burst_duration), ~head(.,1)),
+#             across(c(yaw_sd, roll_sd, pitch_sd,
+#                      yaw_mean, roll_mean, pitch_mean,
+#                      yaw_min, roll_min, pitch_min,
+#                      yaw_max, roll_max, pitch_max), 
+#                    ~mean(., na.rm = T),
+#                    .names = "mean_{.col}"), #rename the column, because these values are the mean of the sd, max, min values across the 8 seconds
+#             across(c(cumulative_yaw, cumulative_roll, cumulative_pitch),
+#                    ~sum(., na.rm = T),
+#                    .names = "{.col}_8sec"),
+#             across(c(timestamp, timestamp_closest_gps, location_lat_closest_gps, location_long_closest_gps, height_above_ellipsoid_closest_gps, ground_speed_closest_gps, heading_closest_gps), 
+#                    ~head(.,1),
+#                    .names = "start_{.col}"),
+#             across(c(flight_type_sm2, flight_type_sm3, track_flight_seg_id),
+#                    ~Mode(.), #make sure the Mode function is defined
+#                    .names = "{.col}_Mode"),
+#             end_timestamp = tail(timestamp,1),
+#             n_records = n(),
+#             bank_left = sum(bank_direction == "left"),
+#             bank_right = sum(bank_direction == "right"),
+#             bank_straight = sum(bank_direction == "straight"),
+#             heading_left = sum(heading_direction == "left"),
+#             heading_right = sum(heading_direction == "right"),
+#             heading_straight = sum(heading_direction == "straight"),
+#             laterality_bank = (bank_right - bank_left)/(bank_right + bank_left),
+#             laterality_heading = (heading_right - heading_left)/(heading_right + heading_left),
+#             .groups = "keep") %>% 
+#   ungroup() %>% 
+#   as.data.frame()
+# Sys.time() - st_time # 8 minutes
+# #this is basically the same as GPS_matched_or_w_summaries_8sec_Jul24.rds in 01b_imu_processing.r, but with laterality index added
+# 
+# saveRDS(laterality_1sec, file = "laterality_index_per_8sec_burst.rds")
+
+
