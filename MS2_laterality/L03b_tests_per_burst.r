@@ -242,7 +242,7 @@ laterality_1sec_days <- readRDS("laterality_index_per_8sec_burst_days_since.rds"
          laterality_bank_bin = ifelse(laterality_bank_dir == "ambidextrous", 0, 1)) %>% #create a binomial variable to use as the response in the GAM
   as.data.frame()
 
-#########run the binomial GAM
+#########run the binomial GAM ####
 #https://noamross.github.io/gams-in-r-course/chapter4
 
 #model without individual random effects
@@ -270,7 +270,7 @@ vis.gam(x = gam_population,                # GAM object
         view = c("days_since_tagging", "cumulative_yaw_8sec"),   # variables
         plot.type = "persp")    #3d plot
 
-############## gam with tensor smooth, using ti: separate smooths for each variable in addition to the interaction. needs more data
+############## gam with tensor smooth, using ti: separate smooths for each variable in addition to the interaction. needs more data ####
 ctrl <- list(nthreads = 6)
 (st_time <- Sys.time())
 gam_population2 <- gam(laterality_bank_bin ~ s(days_since_tagging) +
@@ -288,7 +288,7 @@ plot(gam_population2, scheme = 2, trans = plogis)
 plot(gam_population2, scheme = 1, trans = plogis)
 
 
-############## gam with tensor smooth: only first 100 days
+############## gam with tensor smooth: only first 100 days ####
 
 data_100 <- laterality_1sec_days %>% 
   filter(days_since_tagging <= 100) %>% 
@@ -298,35 +298,115 @@ ctrl <- list(nthreads = 10)
 (st_time <- Sys.time())
 gam_pop3 <- gam(laterality_bank_bin ~ s(days_since_tagging) +
                          s(abs(cumulative_yaw_8sec)) +
-                         ti(days_since_tagging, abs(cumulative_yaw_8sec)), 
+                         te(days_since_tagging, abs(cumulative_yaw_8sec)), 
                        data = data_100, method = "REML", family = "binomial", control = ctrl)
-Sys.time() - st_time #14 seconds
+Sys.time() - st_time #24 seconds
 
 summary(gam_pop3) #R-sq.(adj) =  0.0182   Deviance explained = 1.46%
 
-plot(gam_pop3, page = 1, trans = plogis, rug = T)
-plot(gam_pop3, scheme = 2, trans = plogis)
+plot(gam_pop3, page = 1, trans = plogis, rug = T, shift = coef(gam_pop3)[1], seWithMean = TRUE)
+plot(gam_pop3, scheme = 2, trans = plogis, shift = coef(gam_pop3)[1], seWithMean = TRUE)
 
-############## gam with tensor smooth: only first 100 days + individual effect
+plot(gam_pop3, scheme = 2, trans = plogis, shift = coef(gam_pop3)[1], seWithMean = TRUE) #To get appropriately-scaled marginal effects plots, we can use the following specification: plot(binom_mod, pages = 1, trans = plogis, shift = coef(binom_mod)[1], seWithMean = TRUE)
 
-data_100 <- laterality_1sec_days %>% 
-  filter(days_since_tagging <= 100) %>% 
-  as.data.frame()
+b <- getViz(gam_pop3)
+print(plot(b, allTerms = T, trans = plogis), pages = 1) 
+plot(sm(b, 1)) + l_fitRaster() + l_fitContour() + l_points()
+
+############## gam with tensor smooth: only first 100 days + individual effect ####
 
 ctrl <- list(nthreads = 10)
 (st_time <- Sys.time())
-gam_pop3 <- gam(laterality_bank_bin ~ s(days_since_tagging) +
+gam_ind <- gam(laterality_bank_bin ~ s(days_since_tagging) +
                   s(abs(cumulative_yaw_8sec)) +
-                  ti(days_since_tagging, abs(cumulative_yaw_8sec)), 
+                  ti(days_since_tagging, abs(cumulative_yaw_8sec)) +
+                 s(individual_local_identifier, bs = "re"),
                 data = data_100, method = "REML", family = "binomial", control = ctrl)
-Sys.time() - st_time #14 seconds
+Sys.time() - st_time #56 seconds
 
-summary(gam_pop3) #R-sq.(adj) =  0.0182   Deviance explained = 1.46%
+summary(gam_ind) #R-sq.(adj) =  0.0216   Deviance explained = 1.74%
 
-plot(gam_pop3, page = 1, trans = plogis, rug = T)
-plot(gam_pop3, scheme = 2, trans = plogis)
-plot(gam_pop3, scheme = 1, trans = plogis)
+plot(gam_ind, page = 1, trans = plogis, rug = T)
+plot(gam_ind, scheme = 2, trans = plogis)
+plot(gam_ind, scheme = 1, trans = plogis)
 
-vis.gam(x = gam_pop3,                # GAM object
+vis.gam(x = gam_ind,                # GAM object
         view = c("days_since_tagging", "cumulative_yaw_8sec"),   # variables
         plot.type = "persp")    #3d plot
+
+b <- getViz(gam_ind)
+print(plot(b, allTerms = T, trans = plogis), pages = 1) 
+plot(sm(b, 1)) + l_fitRaster() + l_fitContour() + l_points()
+
+library(DHARMa) #https://cran.r-project.org/web/packages/DHARMa/vignettes/DHARMa.html
+simulationOutput <- simulateResiduals(fittedModel = gam_pop3, plot = F)
+plot(simulationOutput)
+plotResiduals(simulationOutput)
+testDispersion(simulationOutput)
+
+
+plot(gam_pop3, shade = TRUE, scale = 0, residuals = TRUE)
+
+############## gam with circle radius as a categorical variable, time and ind ####
+
+data_circle_r <- laterality_1sec_days %>% 
+  mutate(turn_r = case_when(
+    between(abs(cumulative_yaw_8sec), 0, 15) ~ "linear",
+    between(abs(cumulative_yaw_8sec), 15, 90) ~ "shallow",
+    abs(cumulative_yaw_8sec) >= 90 ~ "full",
+  ) %>% as.factor())
+
+#some exploration
+ggplot(data_circle_r, aes(x = turn_r, y = abs(cumulative_roll_8sec))) +
+  geom_boxplot()
+
+
+ctrl <- list(nthreads = 10)
+(st_time <- Sys.time())
+gam_ind <- gam(laterality_bank_bin ~ s(days_since_tagging, by = turn_r) +
+               s(individual_local_identifier, bs = "re"),
+               data = data_circle_r, method = "REML", family = "binomial", control = ctrl)
+Sys.time() - st_time #1.3 min
+
+summary(gam_ind) #R-sq.(adj) =  0.0247   Deviance explained = 2.05%
+
+############## gam with ONLY turning events ####
+ 
+turns_only <- data_circle_r %>% 
+  filter(turn_r != "linear") #PROVE the threshold makes sense using the gps data
+
+ctrl <- list(nthreads = 10)
+(st_time <- Sys.time())
+gam_full <- gam(laterality_bank_bin ~ s(days_since_tagging) +
+                 s(abs(cumulative_yaw_8sec)) +
+                 ti(days_since_tagging, abs(cumulative_yaw_8sec)) +
+                 s(individual_local_identifier, bs = "re"),
+               data = turns_only, method = "REML", family = "binomial", control = ctrl)
+Sys.time() - st_time #1 min
+
+summary(gam_full)# R-sq.(adj) =  0.0407   Deviance explained = 3.54%
+
+#use mgcViz
+b <- getViz(gam_full)
+print(plot(b, allTerms = T, trans = plogis, shift = coef(gam_full)[1], seWithMean = TRUE), pages = 1) 
+
+############## gam with ONLY turning events AND ONLY 50% quantile of the data: i.e. until day 58 ####
+
+turns_only <- data_circle_r %>% 
+  filter(turn_r != "linear") %>%  #PROVE the threshold makes sense using the gps data
+  filter(days_since_tagging <= quantile(days_since_tagging, probs = 0.5))
+
+ctrl <- list(nthreads = 10)
+(st_time <- Sys.time())
+gam_58days <- gam(laterality_bank_bin ~ s(days_since_tagging) +
+                  s(abs(cumulative_yaw_8sec)) +
+                  ti(days_since_tagging, abs(cumulative_yaw_8sec)) +
+                  s(individual_local_identifier, bs = "re"),
+                data = turns_only, method = "REML", family = "binomial", control = ctrl)
+Sys.time() - st_time #26 seconds
+
+summary(gam_58days) #R-sq.(adj) =  0.0298   Deviance explained = 2.43%
+
+#use mgcViz
+b <- getViz(gam_58days)
+print(plot(b, allTerms = T, trans = plogis, shift = coef(gam_58days)[1], seWithMean = TRUE), pages = 1) 
