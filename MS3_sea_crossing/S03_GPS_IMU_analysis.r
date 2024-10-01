@@ -276,7 +276,7 @@ pol <- st_polygon(
   st_sfc(crs = wgs)
 
 #the original code is in migration_map.R
-data <-readRDS("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/R_files/sea_gps_seg_ann.rds")
+data <-readRDS("/home/mahle68/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/R_files/sea_gps_seg_ann.rds")
   
 
 X11(width = 13, height = 15)

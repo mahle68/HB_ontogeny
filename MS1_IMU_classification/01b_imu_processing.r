@@ -146,7 +146,6 @@ Sys.time() - st_time #10 hrs
 saveRDS(or_seconds, file = "quat_angles_secs_apr24.rds")
 
 #for each second, calculate the mean, min, max, sd, cumsum for each axis
-
 or_seconds <- readRDS("quat_angles_secs_apr24.rds") 
 
 (start_t <- Sys.time())

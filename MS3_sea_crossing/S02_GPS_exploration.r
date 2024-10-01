@@ -12,7 +12,7 @@ library(ggridges)
 library(move2)
 library(units)
 
-source("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/functions.R")
+source("/home/mahle68/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/functions.R")
 
 # STEP 0: Open segmented data -------------------------------------------------------------------------------------------------------------------------------------------------------
 sea_sf <- list.files("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/
@@ -58,7 +58,7 @@ saveRDS(sea_ann, file = "/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.g
 
 # STEP 3: Data exploration ---------------------------------------------------------------------------------------------------------------------------------------------------
 
-sea_sf <- readRDS("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/R_files/sea_gps_seg_ann.rds")
+sea_sf <- readRDS("/home/mahle68/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/R_files/sea_gps_seg_ann.rds")
   
   ggplot(sea_sf, aes(x = local_identifier, fill = flight_clust_sm3)) +
   geom_bar()

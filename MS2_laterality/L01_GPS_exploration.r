@@ -13,8 +13,6 @@ library(rgl)
 wgs <- st_crs("+proj=longlat +datum=WGS84 +no_defs")
 setwd("/home/mahle68/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/")
 
-#source the imu functions
-source("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/HB_ontogeny/MS1_IMU_classification/00_imu_diy.r")
 
 #STEP 1: download gps data for wintering -----------------------------
 
