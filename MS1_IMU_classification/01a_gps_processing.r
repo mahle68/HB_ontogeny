@@ -351,7 +351,7 @@ gps_complete <- lapply(list.files("/home/enourani/ownCloud - enourani@ab.mpg.de@
 saveRDS(gps_complete, file = "R_files/all_gps_seg_ann_Nov2023.rds")
 
 
-############## explore why there are so many NA vlaues for the 2023 birds
+############## explore why there are so many NA values for the 2023 birds
 birds_23 <- c("D329_012", "D329_013", "D329_014", "D329_015", "D326_193", "D326_192")
 
 gps <- readRDS("R_files/all_gps_seg_ann_Nov2023.rds")
