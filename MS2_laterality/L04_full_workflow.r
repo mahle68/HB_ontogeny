@@ -55,15 +55,18 @@ ggplot(laterality_1sec_days, aes(x = cumulative_yaw_8sec, fill = circling_status
 
 # #data: angle summaries for each second (from 01b_imu_processing.r)
 
+laterality_1sec_days <- laterality_1sec_days %>% 
+  mutate(circling_status = as.factor(circling_status))
 
 X11(width = 7, height = 2.8) 
 (p <- ggplot(data = laterality_1sec_days, aes(x = mean_roll_mean, fill = circling_status)) +
     geom_histogram(binwidth = 1) +
-    geom_vline(xintercept = 0, linetype = "dashed", color = "black", linewidth = 0.2) +
+    geom_vline(xintercept = 0, linetype = "dashed", color = "gray30", linewidth = 0.5) +
     scale_x_continuous(breaks =seq(-90, 90, by = 10), 
                        labels = seq(-90, 90, by = 10),
                        limits = c(-92, 92)) +
-    scale_fill_manual(values = c("straight" = "#40e0d0ff", "circling" = "#8a2be2ff", "shallow circling" = "#ff7f50ff")) +
+    scale_fill_manual(values = c("straight" = "#238A8DFF", "circling" = "#8a2be2ff", "shallow circling" = "#DCE319FF"),
+                      labels = rev(c("Straight", "Shallow circling", "Circling"))) +
     labs(x = "Bank angle (deg) averaged over each 8 second burst",
          y = "Count",
          fill = "Circularity") +
@@ -76,7 +79,8 @@ X11(width = 7, height = 2.8)
           panel.grid.minor = element_line(color = "white"),
           axis.title.x = element_text(margin = margin(t = 5))) #increase distance between x-axis values and title
 )
-ggsave(plot = p, filename = "/home/mahle68/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/paper_prep/MS2_laterality/figures/roll_distribution.pdf", 
+
+ggsave(plot = p, filename = "/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/paper_prep/MS2_laterality/figures/roll_distribution.pdf", 
        device = "pdf", width = 7, height = 2.8, dpi = 600)
 
 #-------------------------------------------------------
@@ -134,15 +138,17 @@ X11(width = 7, height = 7)
                                             color = laterality_dir, fill = laterality_dir),
                   height = stat(density)) +
     geom_density_ridges(stat = "binline", bins = 150, scale = 0.98, alpha = 0.8, draw_baseline = FALSE) +
-    geom_vline(xintercept = 0, linetype = "dashed", color = "black", linewidth = 0.2) +
+    geom_vline(xintercept = 0, linetype = "dashed", color = "gray30", linewidth = 0.5) +
     scale_x_continuous(breaks = seq(-90, 90, by = 10), 
                        labels = seq(-90, 90, by = 10),
                        limits = c(-92, 92)) +
     scale_y_discrete(expand = expansion(mult = c(0.01, 0.03))) +  # Add extra space above the highest level
-    scale_fill_manual(values = c("left_handed" = "royalblue" , "ambidextrous" = "yellowgreen", "right_handed" = "lightcoral")) +
-    scale_color_manual(values = c("left_handed" = "royalblue", "ambidextrous" = "yellowgreen", "right_handed" = "lightcoral")) +
+    scale_fill_manual(values = c("left_handed" = "#33638DFF" , "ambidextrous" = "#B8DE29FF", "right_handed" = "#20A387FF"),
+                      labels = c("Left-handed", "Ambidextrous", "Right-handed")) +
+    scale_color_manual(values = c("left_handed" = "#33638DFF", "ambidextrous" = "#B8DE29FF", "right_handed" =  "#20A387FF"),
+                       labels = c("Left-handed", "Ambidextrous", "Right-handed")) +
     labs(x = "Bank angle (deg) averaged over each 8 second burst",
-         y = "Individual",
+         y = "Individual ID",
          fill = "Handedness",
          color = "Handedness") +
     theme_classic() +
@@ -154,10 +160,7 @@ X11(width = 7, height = 7)
           panel.grid.minor = element_line(color = "white"),
           axis.title.x = element_text(margin = margin(t = 5))) #increase distance between x-axis values and title
 )
-#+
-#guides(color = "none"))
-
-ggsave(plot = p_inds, filename = "/home/mahle68/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/paper_prep/MS2_laterality/figures/roll_distr_circling_inds.pdf", 
+ggsave(plot = p_inds, filename = "/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/paper_prep/MS2_laterality/figures/roll_distr_circling_inds.pdf", 
        device = "pdf", width = 7, height = 7, dpi = 600)
 
 #---------------------------------------------------------------------
@@ -380,11 +383,12 @@ levels(graph$Factor) <- VarNames
 X11(width = 3.42, height = 1.5)
 (coefs <- ggplot(graph, aes(x = Estimate, y = Factor)) +
     geom_vline(xintercept = 0, linetype="dashed", 
-               color = "gray", linewidth = 0.5) +
+               color = "gray75", linewidth = 0.5) +
     geom_point(color = "#8a2be2ff", size = 2)  +
     labs(x = "Estimate", y = "") +
     scale_y_discrete(labels = rev(c("Intercept", "Average pitch", "Absolute cumulative yaw"))) +
     geom_linerange(aes(xmin = Lower, xmax = Upper),color = "#8a2be2ff", linewidth = 0.5) +
+    ggtitle("a") +
     theme_classic() +
     theme(text = element_text(size = 11),
           legend.text = element_text(size = 10),
@@ -401,7 +405,7 @@ ggsave(plot = coefs, filename = "/home/mahle68/ownCloud - enourani@ab.mpg.de@own
 #### ind_specific coefficients plot -----------------------------------------------------------------------------
 
 #extract handedness for each individual. to use for coloring
-handedness <- readRDS("/home/mahle68/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de2/Work/Projects/HB_ontogeny_eobs/R_files/circling_w_LI_population.rds") %>% 
+handedness <- readRDS("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de2/Work/Projects/HB_ontogeny_eobs/R_files/circling_w_LI_population.rds") %>% 
   group_by(individual_local_identifier) %>% 
   slice(1) %>% 
   ungroup() %>% 
@@ -445,10 +449,11 @@ X11(width = 7, height = 9)
                aes(xintercept = graph %>% filter(Factor == "abs_cum_yaw_z") %>% pull(Estimate)), linetype = "dashed", color = "gray75", size = 0.5) +  
     geom_point(size = 2, position = position_dodge(width = .7))  +
     geom_linerange(aes(xmin = lower, xmax = upper), size = 0.8, position = position_dodge(width = .7)) +
-    scale_color_manual(values = c("left_handed" = "royalblue", "ambidextrous" = "yellowgreen", "right_handed" = "lightcoral"),
+    scale_color_manual(values = c("left_handed" = "#33638DFF" , "ambidextrous" = "#B8DE29FF", "right_handed" =  "#20A387FF"),
+                       labels = c("Left-handed", "Ambidextrous", "Right-handed"),
                        name = "Handedness") +
     scale_y_discrete(labels = ind_IDs) +
-    labs(x = "Estimate", y = "") +
+    labs(x = "Estimate", y = "Individual ID") +
     theme_classic() +
     theme(text = element_text(size = 11),
           legend.text = element_text(size = 10),
@@ -463,7 +468,7 @@ X11(width = 7, height = 9)
     )) # Separate panels for each variable
 )
 
-ggsave(plot = coefs_inds, filename = "/home/mahle68/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/paper_prep/MS2_laterality/figures/difficulty_model_coeffs_inds.pdf", 
+ggsave(plot = coefs_inds, filename = "/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/paper_prep/MS2_laterality/figures/difficulty_model_coeffs_inds.pdf", 
        device = "pdf", width = 7, height = 9, dpi = 600)
 
 
@@ -478,12 +483,13 @@ smooth_effects <- m_inla$summary.random$age_group %>%
 # Plot the smooth term.... HIGHLIGHT MIGRATION period
 X11(width = 3.42, height = 1.5)
 (s <- ggplot(smooth_effects, aes(x = age, y = mean)) +
-    geom_line(color = "#8a2be2ff", linewidth = 0.5) +
+    geom_line(color = "#8a2be2ff", linewidth = 0.3) +
     geom_ribbon(aes(ymin = `0.025quant`, ymax = `0.975quant`), fill = "#8a2be2ff", alpha = 0.12) +
     # xlim(1,300) +
     geom_hline(yintercept = 0, linetype="dashed", 
-               color = "gray", linewidth = 0.5) +
+               color = "gray75", linewidth = 0.5) +
     labs(y = "Effect Size", x = "Days since tagging") +
+    ggtitle("b") +
     theme_classic() +
     theme(text = element_text(size = 11),
           legend.text = element_text(size = 10),
@@ -496,11 +502,11 @@ X11(width = 3.42, height = 1.5)
 
 
 #combine the two plots for the linear and the non-linear terms
-X11(width = 7, height = 1.7)
-model_output_p <- grid.arrange(coefs, s, nrow = 1)
+X11(width = 7, height = 2.3)
+model_output_p <- grid.arrange(coefs, s, nrow = 1, widths = c(0.5, 0.5))
 
-ggsave(plot = model_output_p, filename = "/home/mahle68/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/paper_prep/MS2_laterality/figures/difficulty_model_output.pdf", 
-       device = "pdf", width = 7, height = 2, dpi = 600)
+ggsave(plot = model_output_p, filename = "/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/paper_prep/MS2_laterality/figures/difficulty_model_output.pdf", 
+       device = "pdf", width = 7, height = 2.3, dpi = 600)
 
 #-----------------------------------------------------------------------------------------------------------------------
 ## Step 5.1: Does laterality help with better performance when individuals are not experienced? Flight performance #####
@@ -632,7 +638,7 @@ levels(graph$Factor) <- VarNames
 X11(width = 3.42, height = 2.3)
 (coefs <- ggplot(graph, aes(x = Estimate, y = Factor)) +
     geom_vline(xintercept = 0, linetype="dashed", 
-               color = "gray", linewidth = 0.5) +
+               color = "gray75", linewidth = 0.5) +
     geom_point(color = "#8a2be2ff", size = 2)  +
     labs(x = "Estimate", y = "") +
     scale_y_discrete(labels = rev(c("Intercept", "Laterality", "Age", "Laterality:Age"))) + 
@@ -678,7 +684,7 @@ random_effects_age <- m_inla$summary.random$individual_local_identifier
 #extract unique individual IDs from original data
 ind_IDs <- unique(data$individual_local_identifier)
 
-age <- random_effects_lat %>% 
+age <- random_effects_age %>% 
   mutate(coef = mean + graph %>% filter(Factor == "age_group") %>% pull(Estimate),
          lower = .[,4] +  graph %>% filter(Factor == "age_group") %>% pull(Lower),
          upper = .[,6] +  graph %>% filter(Factor == "age_group") %>% pull(Upper),
@@ -695,8 +701,13 @@ X11(width = 7, height = 9)
                aes(xintercept = graph %>% filter(Factor == "age_group") %>% pull(Estimate)), linetype = "dashed", color = "gray75",size = 0.5) + 
     geom_point(size = 2, position = position_dodge(width = .7))  +
     geom_linerange(aes(xmin = lower, xmax = upper), size = 0.8, position = position_dodge(width = .7)) +
-    scale_color_manual(values = c("left_handed" = "royalblue", "ambidextrous" = "yellowgreen", "right_handed" = "lightcoral"),
-                       name = "Handedness") +
+    scale_color_manual(values = c("left_handed" = "#33638DFF" , "ambidextrous" = "#20A387FF", "right_handed" = "#B8DE29FF"),
+                      labels = c("Left-handed", "Ambidextrous", "Right-handed"),
+                      name = Handedness) +
+    #scale_color_manual(values = c("left_handed" = "#33638DFF", "ambidextrous" = "#20A387FF", "right_handed" = "#B8DE29FF"),
+    #                   labels = c("Left-handed", "Ambidextrous", "Right-handed")) +
+    #scale_color_manual(values = c("left_handed" = "royalblue", "ambidextrous" = "yellowgreen", "right_handed" = "lightcoral"),
+    #                   name = "Handedness") +
     scale_y_discrete(labels = ind_IDs) +
     labs(x = "Estimate", y = "") +
     theme_classic() +
@@ -777,6 +788,33 @@ ggsave(plot = model_output_p, filename = "/home/enourani/ownCloud - enourani@ab.
 #-----------------------------------------------------------------------------------------------------------------------
 #migration performance ~ level of handedness  (one row per individual)
 
+#extract handedness for each individual. to use for coloring
+handedness <- readRDS("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/R_files/circling_w_LI_population.rds") %>% 
+  group_by(individual_local_identifier) %>% 
+  slice(1) %>% 
+  ungroup() %>% 
+  select(individual_local_identifier, laterality_dir) %>% 
+  mutate(individual_local_identifier = as.character(individual_local_identifier))
+
 #data from Ellen
-migr <- list.files("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/data/from_Ellen", full.names = T)
+migr_dates <- readRDS("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/data/from_Ellen/HB_dates_Fin_all_M2.rds")
+migr_info <- readRDS("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/data/from_Ellen/mig_sum.rds") %>% 
+  full_join(handedness) %>% 
+  drop_na(individual_local_identifier) %>% 
+  mutate(laterality_bi = ifelse(laterality_dir == "ambidextrous", 0, 1) %>% as.factor()) #create a binary variable for handedness vs not)
+  
+
+#exploratory plots
+ggplot(migr_info, aes(x = laterality_dir, y = avg_speed_kmh)) +
+  geom_boxplot() +
+  geom_point() +
+  labs(x = "Laterality", y = "avg_speed_kmh") +
+  theme_classic()
+
+ggplot(migr_info, aes(x = laterality_bi, y = avg_speed_kmh)) +
+  geom_boxplot() +
+  geom_point() +
+  labs(x = "Laterality", y = "avg_speed_kmh") +
+  theme_classic()
+
 
