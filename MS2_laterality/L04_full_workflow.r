@@ -20,7 +20,7 @@ library(performance)
 library(corrr)
 library(gridExtra)
 
-setwd("/home/mahle68/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de2/Work/Projects/HB_ontogeny_eobs/R_files/")
+setwd("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/R_files/")
 
 #------------------------------------------------------------
 ## Step 1: calculate euler angles, and laterality index #####
@@ -210,15 +210,10 @@ laterality_circling_thin <- readRDS("laterality_index_per_8sec_burst_days_since.
 #### ----------------------- environmental annotation
 
 #6940 rows don't have a gps location associated with them.... so, redo GPS-matching and increase the time window to one hour, to match that of the env. data
-#open gps data: segmented and annotated (original code in )1b_imu_processing.r
-gps_ls <- list.files("gps_seg_apr24", full.names = T) %>% #these are sf files
-  map(readRDS) %>% 
-  bind_rows() %>% 
-  mutate(individual_local_identifier = as.character(individual_local_identifier),
-         row_id = row_number(), #assign a row id to be able to cbind the annotated data with the original data later on
-         location_long = st_coordinates(.)[,1],
-         location_lat = st_coordinates(.)[,2]) %>% 
-  st_drop_geometry() %>% 
+#open raw gps data
+
+gps_ls <- readRDS("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/data/all_gps_apr15_24.rds") %>% 
+  mutate(individual_local_identifier = as.character(individual_local_identifier)) %>% 
   arrange(individual_local_identifier) %>% 
   group_by(individual_local_identifier) %>% 
   group_split() %>% 
@@ -243,13 +238,12 @@ find_closest_gps <- function(or_data, gps_data, time_tolerance = 60 * 60) {
     if (nrow(gps_sub) >= 1) {
       time_diff <- abs(difftime(gps_sub$timestamp, or_row_time, units = "secs"))
       min_diff <- which.min(time_diff)
-      or_data[h, c("timestamp_closest_gps", "location_long_closest_gps", "location_lat_closest_gps", "height_above_ellipsoid_closest_gps", "ground_speed_closest_gps", 
-                   "heading_closest_gps", "flight_type_sm2", "flight_type_sm3", "track_flight_seg_id")] <- 
-        gps_sub[min_diff, c("timestamp", "location_long", "location_lat", "height_above_ellipsoid", "ground_speed", "heading", 
-                            "flight_clust_sm2", "flight_clust_sm3", "track_flight_seg_id")]
+      or_data[h, c("timestamp_closest_gps_raw", "location_long_closest_gps_raw", "location_lat_closest_gps_raw", "height_above_ellipsoid_closest_gps_raw", "ground_speed_closest_gps_raw", 
+                   "heading_closest_gps")] <- 
+        gps_sub[min_diff, c("timestamp", "location_long", "location_lat", "height_above_ellipsoid", "ground_speed", "heading")]
     } else {
-      or_data[h, c("timestamp_closest_gps", "location_long_closest_gps", "location_lat_closest_gps", "height_above_ellipsoid_closest_gps", "ground_speed_closest_gps", 
-                   "heading_closest_gps", "row_id", "flight_type_sm2", "flight_type_sm3", "track_flight_seg_id")] <- NA
+      or_data[h, c("timestamp_closest_gps_raw", "location_long_closest_gps_raw", "location_lat_closest_gps_raw", "height_above_ellipsoid_closest_gps_raw", "ground_speed_closest_gps_raw", 
+                   "heading_closest_gps")] <- NA
     }
     return(or_data[h, ])
   })
@@ -264,31 +258,23 @@ Sys.time() - b # 3.8 hrs for orientation with one sec per row
 #add a column comparing or and gps timestamps. then save one file per individual. also limit to migratory season!! 1.09 - 30.10
 or_w_gps_df <- lapply(or_w_gps, function(x){
   x2 <- x %>% 
-    mutate(imu_gps_timediff_sec = if_else(is.na(timestamp_closest_gps), NA, difftime(start_timestamp, timestamp_closest_gps, units = "secs") %>%  as.numeric()))
-  
-  #saveRDS(x2, 
-  #        file = paste0("/home/mahle68/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/R_files/matched_gps_quat/",
-  #                      x2$individual_local_identifier[1], "_quat_w_gps.rds"))
+    mutate(imu_gps_timediff_sec = if_else(is.na(timestamp_closest_gps_raw), NA, difftime(start_timestamp, timestamp_closest_gps_raw, units = "secs") %>%  as.numeric()))
   x2
 }) %>% 
   bind_rows()
 
-sum(is.na(or_w_gps_df$start_timestamp_closest_gps))
-sum(is.na(or_w_gps_df$timestamp_closest_gps))
+sum(is.na(or_w_gps_df$location_long_closest_gps_raw)) #923
+sum(is.na(or_w_gps_df$start_location_long_closest_gps)) #6940
+
+saveRDS(or_w_gps_df, file = "thinned_laterality_w_gps.rds")
 
 #there are still many rows with no assinged gps
 no_gps <- or_w_gps_df %>% 
   filter(is.na(timestamp_closest_gps))
 
-#####
-#how many hours of data need to be downloaded?
-laterality_circling_thin %>% 
-  group_by(year(start_timestamp), month(start_timestamp), day(start_timestamp), hour(start_timestamp)) %>% 
-  slice(1)
-
-
 
 #### ----------------------- look at multi-collinearity
+
 laterality_circling_thin %>% 
   dplyr::select(c("mean_roll_sd", "mean_yaw_mean", "mean_yaw_sd", "mean_pitch_mean" , "mean_pitch_sd", "cumulative_pitch_8sec", 
                   "abs_cum_yaw", "days_since_tagging")) %>% 
@@ -413,7 +399,6 @@ ggsave(plot = coefs, filename = "/home/mahle68/ownCloud - enourani@ab.mpg.de@own
        device = "pdf", width = 3.42, height = 1.5, dpi = 600)
 
 #### ind_specific coefficients plot -----------------------------------------------------------------------------
-
 
 #extract handedness for each individual. to use for coloring
 handedness <- readRDS("/home/mahle68/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de2/Work/Projects/HB_ontogeny_eobs/R_files/circling_w_LI_population.rds") %>% 
@@ -541,7 +526,266 @@ ggsave(plot = model_output_p, filename = "/home/mahle68/ownCloud - enourani@ab.m
 #-----------------------------------------------------------------------------------------------------------------------
 #flight performance ~ level of handedness * age
 
+#open data
+laterality_circling_thin <- readRDS("thinned_laterality_w_gps.rds") #this file doesnt have the attributes... problematic for back-transforming
 
+#I have mean of sd of yaw, pitch, and roll. consider calculating the maxes for this analysis.... will need to go back to the original
+#code where I summarized the Quat for each 8-sec burst
+
+#### ----------------------- look at multi-collinearity
+laterality_circling_thin %>% 
+  dplyr::select(c("mean_roll_sd", "mean_yaw_mean", "mean_yaw_sd", "mean_pitch_mean" , "mean_pitch_sd", "cumulative_pitch_8sec", 
+                  "abs_cum_yaw", "days_since_tagging")) %>% 
+  correlate() %>% 
+  corrr::stretch() %>% 
+  filter(abs(r) > 0.5) #sd of roll and pitch = 0.65; sd of yaw and cumulative yaw = 0.7
+
+#### ----------------------- exploratory plot
+ggplot(laterality_circling_thin, aes(x = factor(laterality_bi), y = mean_pitch_sd)) +
+  geom_boxplot() +
+  labs(x = "Laterality", y = "pitch wobble") +
+  theme_minimal()
+
+ggplot(laterality_circling_thin, aes(x = factor(laterality_bi), y = mean_roll_sd)) +
+  geom_boxplot() +
+  labs(x = "Laterality", y = "roll wobble") +
+  theme_minimal()
+
+ggplot(laterality_circling_thin, aes(x = factor(laterality_bi), y = mean_yaw_sd)) +
+  geom_boxplot() +
+  labs(x = "Laterality", y = "yaw wobble") +
+  theme_minimal()
+
+#model each flight performance separately, but because pitch and roll are correlated, maybe only do pitch and yaw? ...
+#also because laterality is calculated using roll anyway.... maybe also control for thermal strength
+
+
+#### ----------------------- model: regression with inla
+
+#first bin the age variable
+data <- laterality_circling_thin %>%  
+  mutate(age_group = inla.group(days_since_tagging_z, n = 200, method = "quantile"),
+         laterality_bi = as.factor(laterality_bi))
+
+set.seed(777)
+#then add new data to predict the interaction between age and laterality
+#create a new dataset to use for making predictions for interaction of mean pitch and cumulative yaw
+new_data <- expand.grid(x = unique(data$age_group), #range of age_group
+                        y = c(0, 1)) %>% #laterality values
+  rename(age_group = x,
+         laterality_bi = y) %>%
+  mutate(laterality_bi = as.factor(laterality_bi),
+         #set the dependent variables to NA
+         mean_yaw_sd_z = NA, 
+         mean_pitch_sd_z = NA, 
+         #randomly assign individual IDs
+         individual_local_identifier = sample(laterality_circling_thin$individual_local_identifier, nrow(.), replace = T) %>% 
+           as.factor())
+
+
+#append the new datasets to original data
+data <- data %>% 
+  mutate(individual_local_identifier = as.factor(individual_local_identifier)) %>% 
+  dplyr::select(names(new_data)) %>%  #only keep the columns that are necessary for the model
+  bind_rows(new_data)
+
+
+####
+m_inla <- inla(mean_yaw_sd_z ~ 1 + laterality_bi * age_group +
+                 f(individual_local_identifier, age_group, model = "iid"),
+               data = data,
+               control.compute = list(cpo = TRUE),
+               control.predictor = list(link = 1, compute = TRUE)) #compute=t means that NA values will be predicted
+
+m_inla <- inla(mean_pitch_sd_z ~ 1 + laterality_bi * age_group +
+                 f(individual_local_identifier, age_group, model = "iid"),
+               data = data,
+               control.compute = list(cpo = TRUE),
+               control.predictor = list(link = 1, compute = TRUE)) #compute=t means that NA values will be predicted
+
+#### ----------------------- model evaluation
+
+#look at residuals
+residuals <- data$mean_yaw_sd - m_inla$summary.fitted.values$mean
+plot(residuals)
+
+#calculate variance explained: McFadden's pseudo R²
+log_likelihood_full <- m_inla$mlik[1, 1]
+
+null_model <- inla(mean_yaw_sd ~ 1,
+                   control.compute = list(cpo = TRUE),
+                   control.predictor = list(link = 1, compute = TRUE),
+                   data = data)
+
+log_likelihood_null <- null_model$mlik[1, 1]
+
+pseudo_r_squared <- 1 - (log_likelihood_full / log_likelihood_null) #0.002
+
+#model validation metrics
+eval <- data.frame(CPO = mean(m_inla$cpo$cpo, na.rm = T), # 0.27 #improves when predicting the z-transformed variable
+                   Mlik = as.numeric(m_inla$mlik[,1][2])) # -86459.69
+
+
+#### coefficients plot -----------------------------------------------------------------------------
+
+# posterior means of coefficients
+graph <- as.data.frame(summary(m_inla)$fixed)
+colnames(graph)[which(colnames(graph)%in%c("0.025quant","0.975quant"))]<-c("Lower","Upper")
+colnames(graph)[which(colnames(graph)%in%c("0.05quant","0.95quant"))]<-c("Lower","Upper")
+colnames(graph)[which(colnames(graph)%in%c("mean"))]<-c("Estimate")
+
+#graph$Model<-i
+graph$Factor <- rownames(graph)
+
+#remove weeks since dispersal
+VarOrder <- rev(unique(graph$Factor))
+VarNames <- VarOrder
+
+graph$Factor <- factor(graph$Factor, levels = VarOrder)
+levels(graph$Factor) <- VarNames
+
+#graph$Factor_n <- as.numeric(graph$Factor)
+
+#plot the coefficients
+X11(width = 3.42, height = 1.5)
+(coefs <- ggplot(graph, aes(x = Estimate, y = Factor)) +
+    geom_vline(xintercept = 0, linetype="dashed", 
+               color = "gray", linewidth = 0.5) +
+    geom_point(color = "#8a2be2ff", size = 2)  +
+    labs(x = "Estimate", y = "") +
+    scale_y_discrete(labels = rev(c("Intercept", "Laterality", "Age", "Laterality:Age"))) + 
+    geom_linerange(aes(xmin = Lower, xmax = Upper),color = "#8a2be2ff", linewidth = 0.5) +
+    theme_classic() +
+    theme(text = element_text(size = 11),
+          legend.text = element_text(size = 10),
+          legend.title = element_text(size = 9),
+          #axis.text = element_text(color = "gray45"),
+          #panel.grid.major = element_line(color = "gray75"),
+          panel.grid.minor = element_line(color = "white"),
+          axis.title.x = element_text(margin = margin(t = 5))) #increase distance between x-axis values and title
+)
+
+ggsave(plot = coefs, filename = "/home/mahle68/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/paper_prep/MS2_laterality/figures/sd_yaw_model_coeffs.pdf", 
+       device = "pdf", width = 3.42, height = 1.5, dpi = 600)
+
+ggsave(plot = coefs, filename = "/home/mahle68/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/paper_prep/MS2_laterality/figures/sd_pitch_model_coeffs.pdf", 
+       device = "pdf", width = 3.42, height = 1.5, dpi = 600)
+
+
+## conclusions: horizontal wobble (sd_yaw) goes down with age and with laterality,
+## vertical wobble (sd_pitch) goes up with age and laterality, BUT there is a negative interaction term
+## TO DO: 1) plot the interaction term. 2) figure out if the response should be transformed or not. 3) add ind level
+## random slope on age and plot ind-specific differences (but this isn't really the focus here... so maybe just add
+## inds as a random effect on the slope, just to control for indivdiual variation. )
+
+
+#### ind_specific coefficients plot -----------------------------------------------------------------------------
+
+#extract handedness for each individual. to use for coloring
+handedness <- readRDS("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/R_files/circling_w_LI_population.rds") %>% 
+  group_by(individual_local_identifier) %>% 
+  slice(1) %>% 
+  ungroup() %>% 
+  select(individual_local_identifier, laterality_dir)
+
+#extract random effects,  ID is for the unique individuals
+#age
+random_effects_age <- m_inla$summary.random$individual_local_identifier
+
+#extract unique individual IDs from original data
+ind_IDs <- unique(data$individual_local_identifier)
+
+age <- random_effects_lat %>% 
+  mutate(coef = mean + graph %>% filter(Factor == "age_group") %>% pull(Estimate),
+         lower = .[,4] +  graph %>% filter(Factor == "age_group") %>% pull(Lower),
+         upper = .[,6] +  graph %>% filter(Factor == "age_group") %>% pull(Upper),
+         variable = "age_group") %>% 
+  full_join(handedness, by = c("ID" = "individual_local_identifier")) %>% 
+  mutate(v_line =  graph %>% filter(Factor == "age_group") %>% pull(Estimate))
+
+#re-order the individuals based on the laterality index
+age$ID <- reorder(age$ID, desc(age$laterality_dir))
+
+X11(width = 7, height = 9)
+(coefs_inds <- ggplot(age, aes(x = coef, y = ID, color = laterality_dir)) +
+    geom_vline(data = age, 
+               aes(xintercept = graph %>% filter(Factor == "age_group") %>% pull(Estimate)), linetype = "dashed", color = "gray75",size = 0.5) + 
+    geom_point(size = 2, position = position_dodge(width = .7))  +
+    geom_linerange(aes(xmin = lower, xmax = upper), size = 0.8, position = position_dodge(width = .7)) +
+    scale_color_manual(values = c("left_handed" = "royalblue", "ambidextrous" = "yellowgreen", "right_handed" = "lightcoral"),
+                       name = "Handedness") +
+    scale_y_discrete(labels = ind_IDs) +
+    labs(x = "Estimate", y = "") +
+    theme_classic() +
+    theme(text = element_text(size = 11),
+          legend.text = element_text(size = 10),
+          legend.title = element_text(size = 9),
+          #axis.text = element_text(color = "gray45"),
+          #panel.grid.major = element_line(color = "gray75"),
+          panel.grid.minor = element_line(color = "white"),
+          axis.title.x = element_text(margin = margin(t = 5)))  #increase distance between x-axis values and title
+)
+
+ggsave(plot = coefs_inds, filename = "/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/paper_prep/MS2_laterality/figures/sd_yaw_model_coeffs_inds.pdf", 
+       device = "pdf", width = 7, height = 9, dpi = 600)
+
+ggsave(plot = coefs_inds, filename = "/home/mahle68/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/paper_prep/MS2_laterality/figures/sd_pitch_model_coeffs_inds.pdf", 
+       device = "pdf", width = 7, height = 9, dpi = 600)
+
+
+#### interaction plot -----------------------------------------------------------------------------
+#extract information for rows that had NAs as response variables
+na_rows <- which(is.na(data$mean_yaw_sd_z))
+
+preds <- data.frame(laterality_bi = data[na_rows,"laterality_bi"],
+                    age_group = data[na_rows,"age_group"],
+                    preds = m_inla$summary.fitted.values[na_rows,"mean"]) %>% 
+  #back transform the age values
+  mutate(age = age_group * sd(laterality_circling_thin$days_since_tagging) + mean(laterality_circling_thin$days_since_tagging),
+         preds_yaw = preds * sd(laterality_circling_thin$mean_yaw_sd) + mean(laterality_circling_thin$mean_yaw_sd))
+
+# Extract the summary of the smooth term 
+smooth_effects <- m_inla$summary.random$age_group %>% 
+  #back transform the age values
+  mutate(age = ID * attr(laterality_circling_thin[,colnames(laterality_circling_thin) == "days_since_tagging_z"],'scaled:scale') +
+           attr(laterality_circling_thin[,colnames(laterality_circling_thin) == "days_since_tagging_z"],'scaled:center') )
+
+
+
+#plot
+(pred_p <- preds %>% 
+    ggplot() +
+    geom_point(aes(x = age, y = preds_yaw, color = laterality_bi), size = 0.2) +
+    geom_smooth(aes(x = age, y = preds_yaw, color = laterality_bi, fill = laterality_bi), method = "lm", se = T, alpha = 0.3, linewidth = 0.3) +
+    scale_color_manual(values = c("0" = "gray40", "1" = "#8a2be2ff"),
+                       name = "Laterality")+
+    scale_fill_manual(values = c("0" = "gray40", "1" = "#8a2be2ff"),
+                      guide = F)+
+    labs(x = "Age", y = "Horizontal wobble") +
+    theme_classic() +
+    guides(colour = guide_legend(override.aes = list(fill = c("0" = "gray40", "1" = "#8a2be2ff"),
+                                                     alpha = 0.5))) +
+    xlim(1,100) +
+    theme(text = element_text(size = 11),
+          legend.text = element_text(size = 10),
+          legend.title = element_text(size = 9),
+          #axis.text = element_text(color = "gray45"),
+          #panel.grid.major = element_line(color = "gray75"),
+          panel.grid.minor = element_line(color = "white"),
+          axis.title.x = element_text(margin = margin(t = 5)))
+)
+
+ggsave(plot = pred_p, filename = "/home/mahle68/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/paper_prep/MS2_laterality/figures/sd_yaw_model_interaction.pdf", 
+       device = "pdf", width = 3.42, height = 1.5, dpi = 600)
+
+
+
+#combine the two plots for the coefficients and the interaction term
+X11(width = 7, height = 2)
+model_output_p <- grid.arrange(coefs, pred_p, nrow = 1, widths = c(0.4, 0.6))
+
+ggsave(plot = model_output_p, filename = "/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/paper_prep/MS2_laterality/figures/sd_yaw_model_output.pdf", 
+       device = "pdf", width = 7, height = 2, dpi = 600)
 
 
 #-----------------------------------------------------------------------------------------------------------------------
@@ -549,4 +793,6 @@ ggsave(plot = model_output_p, filename = "/home/mahle68/ownCloud - enourani@ab.m
 #-----------------------------------------------------------------------------------------------------------------------
 #migration performance ~ level of handedness  (one row per individual)
 
+#data from Ellen
+migr <- list.files("/home/mahle68/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/data/from_Ellen", full.names = T)
 
