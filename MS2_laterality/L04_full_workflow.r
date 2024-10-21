@@ -502,25 +502,6 @@ model_output_p <- grid.arrange(coefs, s, nrow = 1)
 ggsave(plot = model_output_p, filename = "/home/mahle68/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/paper_prep/MS2_laterality/figures/difficulty_model_output.pdf", 
        device = "pdf", width = 7, height = 2, dpi = 600)
 
-
-
-# Assuming 'data' is your dataset and 'm_inla' is your fitted model
-# Extract predictions from the model
-# predictions <- m_inla$summary.fitted.values
-# 
-# # Add predictions to your data
-# data$predicted_prob <- predictions$mean
-
-# # Plot the relationship between the probability of laterality and days since tagging
-# ggplot(data, aes(x = days_since_tagging, y = predicted_prob)) +
-#   geom_line(color = "blue") +
-#   geom_point(aes(y = laterality_bi), alpha = 0.5, color = "red") +
-#   labs(title = "Probability of Laterality vs Days Since Tagging",
-#        x = "Days Since Tagging",
-#        y = "Probability of Laterality") +
-#   theme_minimal()
-
-
 #-----------------------------------------------------------------------------------------------------------------------
 ## Step 5.1: Does laterality help with better performance when individuals are not experienced? Flight performance #####
 #-----------------------------------------------------------------------------------------------------------------------
@@ -603,6 +584,7 @@ m_inla <- inla(mean_pitch_sd_z ~ 1 + laterality_bi * age_group +
                control.compute = list(cpo = TRUE),
                control.predictor = list(link = 1, compute = TRUE)) #compute=t means that NA values will be predicted
 
+
 #### ----------------------- model evaluation
 
 #look at residuals
@@ -647,7 +629,7 @@ levels(graph$Factor) <- VarNames
 #graph$Factor_n <- as.numeric(graph$Factor)
 
 #plot the coefficients
-X11(width = 3.42, height = 1.5)
+X11(width = 3.42, height = 2.3)
 (coefs <- ggplot(graph, aes(x = Estimate, y = Factor)) +
     geom_vline(xintercept = 0, linetype="dashed", 
                color = "gray", linewidth = 0.5) +
@@ -656,6 +638,7 @@ X11(width = 3.42, height = 1.5)
     scale_y_discrete(labels = rev(c("Intercept", "Laterality", "Age", "Laterality:Age"))) + 
     geom_linerange(aes(xmin = Lower, xmax = Upper),color = "#8a2be2ff", linewidth = 0.5) +
     theme_classic() +
+    ggtitle("a") +
     theme(text = element_text(size = 11),
           legend.text = element_text(size = 10),
           legend.title = element_text(size = 9),
@@ -665,11 +648,11 @@ X11(width = 3.42, height = 1.5)
           axis.title.x = element_text(margin = margin(t = 5))) #increase distance between x-axis values and title
 )
 
-ggsave(plot = coefs, filename = "/home/mahle68/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/paper_prep/MS2_laterality/figures/sd_yaw_model_coeffs.pdf", 
-       device = "pdf", width = 3.42, height = 1.5, dpi = 600)
-
-ggsave(plot = coefs, filename = "/home/mahle68/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/paper_prep/MS2_laterality/figures/sd_pitch_model_coeffs.pdf", 
-       device = "pdf", width = 3.42, height = 1.5, dpi = 600)
+# ggsave(plot = coefs, filename = "/home/mahle68/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/paper_prep/MS2_laterality/figures/sd_yaw_model_coeffs.pdf", 
+#        device = "pdf", width = 3.42, height = 1.5, dpi = 600)
+# 
+# ggsave(plot = coefs, filename = "/home/mahle68/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/paper_prep/MS2_laterality/figures/sd_pitch_model_coeffs.pdf", 
+#        device = "pdf", width = 3.42, height = 1.5, dpi = 600)
 
 
 ## conclusions: horizontal wobble (sd_yaw) goes down with age and with laterality,
@@ -739,33 +722,35 @@ na_rows <- which(is.na(data$mean_yaw_sd_z))
 
 preds <- data.frame(laterality_bi = data[na_rows,"laterality_bi"],
                     age_group = data[na_rows,"age_group"],
-                    preds = m_inla$summary.fitted.values[na_rows,"mean"]) %>% 
+                    preds = m_inla$summary.fitted.values[na_rows,"mean"],
+                    lower95 = m_inla$summary.fitted.values[na_rows,"0.025quant"],
+                    upper95 = m_inla$summary.fitted.values[na_rows,"0.975quant"]) %>% 
   #back transform the age values
   mutate(age = age_group * sd(laterality_circling_thin$days_since_tagging) + mean(laterality_circling_thin$days_since_tagging),
          preds_yaw = preds * sd(laterality_circling_thin$mean_yaw_sd) + mean(laterality_circling_thin$mean_yaw_sd))
-
-# Extract the summary of the smooth term 
-smooth_effects <- m_inla$summary.random$age_group %>% 
-  #back transform the age values
-  mutate(age = ID * attr(laterality_circling_thin[,colnames(laterality_circling_thin) == "days_since_tagging_z"],'scaled:scale') +
-           attr(laterality_circling_thin[,colnames(laterality_circling_thin) == "days_since_tagging_z"],'scaled:center') )
-
+         #preds_pitch = preds * sd(laterality_circling_thin$mean_pitch_sd) + mean(laterality_circling_thin$mean_pitch_sd),
+         #upper = upper95 * sd(laterality_circling_thin$mean_pitch_sd) + mean(laterality_circling_thin$mean_pitch_sd),
+         #lower = lower95 * sd(laterality_circling_thin$mean_pitch_sd) + mean(laterality_circling_thin$mean_pitch_sd))
 
 
 #plot
 (pred_p <- preds %>% 
     ggplot() +
     geom_point(aes(x = age, y = preds_yaw, color = laterality_bi), size = 0.2) +
+    #geom_line(aes(x = age, y = preds_pitch, color = laterality_bi), linewidth = 0.5) +
+    #geom_ribbon(aes(x = age, y = preds_pitch, fill = laterality_bi, ymin = lower, ymax = upper), alpha = 0.75) +
     geom_smooth(aes(x = age, y = preds_yaw, color = laterality_bi, fill = laterality_bi), method = "lm", se = T, alpha = 0.3, linewidth = 0.3) +
     scale_color_manual(values = c("0" = "gray40", "1" = "#8a2be2ff"),
                        name = "Laterality")+
     scale_fill_manual(values = c("0" = "gray40", "1" = "#8a2be2ff"),
                       guide = F)+
     labs(x = "Age", y = "Horizontal wobble") +
+    #labs(x = "Age", y = "Vertical wobble") +
+    ggtitle("b") +
     theme_classic() +
     guides(colour = guide_legend(override.aes = list(fill = c("0" = "gray40", "1" = "#8a2be2ff"),
                                                      alpha = 0.5))) +
-    xlim(1,100) +
+    #xlim(1, 300) +
     theme(text = element_text(size = 11),
           legend.text = element_text(size = 10),
           legend.title = element_text(size = 9),
@@ -775,17 +760,16 @@ smooth_effects <- m_inla$summary.random$age_group %>%
           axis.title.x = element_text(margin = margin(t = 5)))
 )
 
-ggsave(plot = pred_p, filename = "/home/mahle68/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/paper_prep/MS2_laterality/figures/sd_yaw_model_interaction.pdf", 
-       device = "pdf", width = 3.42, height = 1.5, dpi = 600)
-
-
 
 #combine the two plots for the coefficients and the interaction term
-X11(width = 7, height = 2)
+X11(width = 7, height = 2.3)
 model_output_p <- grid.arrange(coefs, pred_p, nrow = 1, widths = c(0.4, 0.6))
 
-ggsave(plot = model_output_p, filename = "/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/paper_prep/MS2_laterality/figures/sd_yaw_model_output.pdf", 
-       device = "pdf", width = 7, height = 2, dpi = 600)
+#ggsave(plot = model_output_p, filename = "/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/paper_prep/MS2_laterality/figures/sd_yaw_model_output.pdf", 
+#       device = "pdf", width = 7, height = 2.3, dpi = 600)
+
+ggsave(plot = model_output_p, filename = "/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/paper_prep/MS2_laterality/figures/sd_pitch_model_output.pdf", 
+       device = "pdf", width = 7, height = 2.3, dpi = 600)
 
 
 #-----------------------------------------------------------------------------------------------------------------------
@@ -794,5 +778,5 @@ ggsave(plot = model_output_p, filename = "/home/enourani/ownCloud - enourani@ab.
 #migration performance ~ level of handedness  (one row per individual)
 
 #data from Ellen
-migr <- list.files("/home/mahle68/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/data/from_Ellen", full.names = T)
+migr <- list.files("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/data/from_Ellen", full.names = T)
 
