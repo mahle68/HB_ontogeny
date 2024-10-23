@@ -18,7 +18,7 @@ setwd("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projec
 #So, data was downloaded from the CDS website, separately for each year
 
 #-----------------------------------------------------------------------------
-## Step 1: decide on the unique hours for which data should be retrieved #####
+## Step 1: prepare tracking data #####
 #-----------------------------------------------------------------------------
 
 #open data filtered and matched with GPS in L04_full_workflow_r
@@ -34,14 +34,7 @@ all_gps_apr <- readRDS("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gw
          unique_hr = paste(yr,mn,dy,hr, sep = "_"),
          closest_hr = round(timestamp, units="hours") %>% as.character())
 
-# unique_hrs <- all_gps_apr  %>% 
-#   group_by(closest_hr) %>% 
-#   slice(1) #7327 unique hours; 7311 closest hour
-
 all_gps_ls <- split(all_gps_apr, all_gps_apr$yr)
-
-#convert everything to SpatVector for ease of extraction later on. this was not a good idea. PC crashed when trying to split one year of data into a list of hours
-#all_gps_ls <- lapply(all_gps_ls, function(yr) vect(yr, geom = c("location_long", "location_lat"), crs =  "EPSG:4326"))
 
 #---------------------------------------------------
 ## Step 2: extract wind u and v for each point #####
@@ -50,6 +43,8 @@ all_gps_ls <- split(all_gps_apr, all_gps_apr$yr)
 #list nc files
 nc_files <- list.files("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/data/laterality_annotations/WIND_FROM_CDS",
                        pattern = ".nc", full.names = T)
+
+output_path <- "/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/data/all_gps_apr24_wind_annotated/"
 
 lapply(all_gps_ls, function(x){
   
@@ -85,30 +80,29 @@ lapply(all_gps_ls, function(x){
   x_ls <- split(x, x$closest_hr)
   
   # Define the number of cores to use
-  num_cores <- detectCores() - 4
+  num_cores <- detectCores() - 4 #run on 8 cores
   
-  #for each hour
   (st_time <- Sys.time())
-  wind_this_hr <- lapply(x_ls, function(y){
+  wind_this_yr <- mclapply(x_ls[c(750:780)], function(y){ #for each hour
     
     #extract the unique hourc
     unique_hr <- y$closest_hr[1]
     
-    #extract the corresponding rasters
-    wind <- c(
-      u[[grep(unique_hr, names(u))]],
-      v[[grep(unique_hr, names(v))]]
-    )
-    #also could already annotate with wind speed. but having raw u and v could be helpful later for sure
-    #wind_speed <- sqrt(u[[grep(unique_hr, names(u))]]^2 + v[[grep(unique_hr, names(v))]]^2)
+    #check whether there is any wind data for this hour
     
-    if(nrow(wind) > 0 ){ #if there is matching env data for this hour, extract the wind data for each location.
+    if(length(grep(unique_hr, names(u))) > 0){ #if there is matching env data for this hour, extract the wind data for each location.
+      
+      #extract the corresponding rasters
+      wind <- c(
+        u[[grep(unique_hr, names(u))]],
+        v[[grep(unique_hr, names(v))]]
+      )
       
       #convert tracking data to SpatVector
-      y <- vect(y, geom = c("location_long", "location_lat"), crs =  "EPSG:4326")
+      y_vec <- vect(y, geom = c("location_long", "location_lat"), crs =  "EPSG:4326")
       
       #extract values for each point
-      y_df <- y %>% 
+      y_df <- y_vec %>% 
         extract(x = wind, y = ., method = "bilinear", bind = T) %>% 
         data.frame(., geom(.)) %>% 
         dplyr::select(-c("geom", "part", "hole")) %>% 
@@ -116,61 +110,32 @@ lapply(all_gps_ls, function(x){
         rename(location_lat = y,
                location_long = x)
       
+      y_df <- y %>% 
+        mutate(extract(x = wind, y = y_vec, method = "bilinear", bind = T)) %>% 
+        data.frame(., geom(.)) %>% 
+        dplyr::select(-c("geom", "part", "hole")) %>% 
+        rename_with(~ str_sub(.x, start = -25, end = -21), matches("u_900|v_900")) %>%  #remove timestamp from the column name
+        rename(location_lat = y,
+               location_long = x)
+      
+      
     } else { #if there are no matching wind data for this hour, still create y_df, but with NA values for u and v
       
       y_df <- y %>% 
         mutate(u_900 = NA,
                v_900 = NA)
-      
     }
+          
+    y_df
     
-    return(y_df)
-    
-  }) %>% 
+  }, mc.cores = num_cores) %>% 
     bind_rows()
   
-  Sys.time() - st_time
+  Sys.time() - st_time #4.8 min for one year
   
+  saveRDS(wind_this_yr, file = paste0(output_path,"gps_annotated_", yr, ".rds"))
   
 })
-#-------------------------------
-### or
-#extract manually using ncdf4
-
-#to extract meta-data
-nc_yr <- nc_open(nc_files[grep(yr, nc_files)])
-
-#extract lon and lat
-lat <- ncvar_get(nc_yr,'latitude')
-nlat <- dim(lat) 
-lon <- ncvar_get(nc_yr,'longitude')
-nlon <- dim(lon) 
-
-#extract the time
-t <- ncvar_get(nc_yr, "valid_time")
-nt <- dim(t)
-
-#reference time according to the nc file
-ref_date <- ymd_hms("1970-01-01 00:00:00")
-
-#convert the hours into date + hour
-timestamp <- ref_date + seconds(t)
-
-#put everything in a large df
-row_names <- expand.grid(lon, lat, timestamp)
-
-#extract data for variables
-var_df <- lapply(vname, function(i){
-  df <- data.frame(as.vector(ncvar_get(nc, i)))
-  colnames(df) <- paste0("data_", i)
-  df
-}) %>% 
-  bind_cols() %>% 
-  bind_cols(row_names)
-
-colnames(var_df) <- c(vname, "lon", "lat", "date_time") #set column names
-
-
 
 
 
