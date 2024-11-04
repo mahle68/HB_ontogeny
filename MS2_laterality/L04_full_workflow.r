@@ -174,11 +174,16 @@ handed_IDs <- readRDS("/home/mahle68/ownCloud - enourani@ab.mpg.de@owncloud.gwdg
   mutate(individual_local_identifier = as.character(individual_local_identifier)) %>% 
   distinct(individual_local_identifier)
 
+#### ----------------------- read in data on individuals' age at tagging (from Ellen's MSc thesis)
+ages <- read.csv("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/data/from_Ellen/aging_ellen-msc.csv")
+
+#mean(ages$Estimated.age)
+#1] 31.70968
 
 #### ----------------------- use the 8-sec data and calculate handedness for each 8 second burst
 laterality_circling_thin <- readRDS("laterality_index_per_8sec_burst_days_since.rds") %>% 
   filter(n_records >= 8) %>% # & #remove short bursts) 
-  #individual_local_identifier %in% handed_IDs$individual_local_identifier) %>% #only keep individuals with handedness
+  #full_join(ages, by = "individual_local_identifier") #do this when I have the correct ages from Ellen.
   group_by(individual_local_identifier) %>% 
   arrange(start_timestamp, .by_group = TRUE) %>% 
   #thin the data, so that the consecutive bursts are at least 30 seconds apart
@@ -203,25 +208,20 @@ laterality_circling_thin <- readRDS("laterality_index_per_8sec_burst_days_since.
   filter(circling_status == "circling") %>% # only keep circling flight
   mutate(laterality_bi = ifelse(laterality_dir == "ambidextrous", 0, 1), #create a binary variable for handedness vs not
          abs_cum_yaw = abs(cumulative_yaw_8sec)) %>% 
-  #make sure to do all the filtering before scaling the variables!!!!
-  mutate_at(c("mean_roll_sd", "mean_yaw_mean", "mean_yaw_sd", "mean_pitch_mean" , "mean_pitch_sd", "cumulative_pitch_8sec", 
-              "abs_cum_yaw", "days_since_tagging"),
-            list(z = ~scale(.))) %>% 
   as.data.frame()
 
 
 #### ----------------------- environmental annotation
 
 #6940 rows don't have a gps location associated with them.... so, redo GPS-matching and increase the time window to one hour, to match that of the env. data
-#open raw gps data
+#open raw gps data, matched with wind in L04a_env_annotation.r
 
-gps_ls <- readRDS("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/data/all_gps_apr15_24.rds") %>% 
+gps_ls <- readRDS("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/data/all_gps_apr15_24_wind.rds") %>% 
   mutate(individual_local_identifier = as.character(individual_local_identifier)) %>% 
   arrange(individual_local_identifier) %>% 
   group_by(individual_local_identifier) %>% 
   group_split() %>% 
-  map(as.data.frame) %>% 
-  head(-1) #remove the last element, the 32nd animal
+  map(as.data.frame)
 
 #create a list of one element for each individual
 or_ls <- laterality_circling_thin %>% 
@@ -242,11 +242,11 @@ find_closest_gps <- function(or_data, gps_data, time_tolerance = 60 * 60) {
       time_diff <- abs(difftime(gps_sub$timestamp, or_row_time, units = "secs"))
       min_diff <- which.min(time_diff)
       or_data[h, c("timestamp_closest_gps_raw", "location_long_closest_gps_raw", "location_lat_closest_gps_raw", "height_above_ellipsoid_closest_gps_raw", "ground_speed_closest_gps_raw", 
-                   "heading_closest_gps")] <- 
-        gps_sub[min_diff, c("timestamp", "location_long", "location_lat", "height_above_ellipsoid", "ground_speed", "heading")]
+                   "heading_closest_gps",  "u_900", "v_900", "wind_speed")] <- 
+        gps_sub[min_diff, c("timestamp", "location_long", "location_lat", "height_above_ellipsoid", "ground_speed", "heading", "u_900", "v_900", "wind_speed")]
     } else {
       or_data[h, c("timestamp_closest_gps_raw", "location_long_closest_gps_raw", "location_lat_closest_gps_raw", "height_above_ellipsoid_closest_gps_raw", "ground_speed_closest_gps_raw", 
-                   "heading_closest_gps")] <- NA
+                   "heading_closest_gps", "u_900", "v_900", "wind_speed")] <- NA
     }
     return(or_data[h, ])
   })
@@ -256,59 +256,73 @@ find_closest_gps <- function(or_data, gps_data, time_tolerance = 60 * 60) {
 # Create a list of data frames with or data and associated GPS information
 (b <- Sys.time())
 or_w_gps <- map2(or_ls, gps_ls, ~ find_closest_gps(or_data = .x, gps_data = .y))
-Sys.time() - b # 3.8 hrs for orientation with one sec per row
+Sys.time() - b # 2.5 mins
 
-#add a column comparing or and gps timestamps. then save one file per individual. also limit to migratory season!! 1.09 - 30.10
+#add a column comparing or and gps timestamps. then save one file per individual.
 or_w_gps_df <- lapply(or_w_gps, function(x){
   x2 <- x %>% 
-    mutate(imu_gps_timediff_sec = if_else(is.na(timestamp_closest_gps_raw), NA, difftime(start_timestamp, timestamp_closest_gps_raw, units = "secs") %>%  as.numeric()))
+    mutate(imu_gps_timediff_sec = if_else(is.na(timestamp_closest_gps_raw), NA, difftime(start_timestamp, timestamp_closest_gps_raw, units = "mins") %>%  as.numeric()))
   x2
 }) %>% 
   bind_rows()
 
-sum(is.na(or_w_gps_df$location_long_closest_gps_raw)) #923
+sum(is.na(or_w_gps_df$location_long_closest_gps_raw)) #406
 sum(is.na(or_w_gps_df$start_location_long_closest_gps)) #6940
 
-saveRDS(or_w_gps_df, file = "thinned_laterality_w_gps.rds")
+saveRDS(or_w_gps_df, file = "thinned_laterality_w_gps_wind.rds")
 
 #there are still many rows with no assinged gps
 no_gps <- or_w_gps_df %>% 
   filter(is.na(timestamp_closest_gps))
 
+#### ----------------------- filter for day since tagging and z-transform
+
+quantile(or_w_gps_df$days_since_tagging, probs = 0.9) #271
+
+circling_data <- or_w_gps_df %>% 
+  #filter for days since tagging. only keep the 
+  filter(days_since_tagging < quantile(days_since_tagging, probs = 0.9)) %>% 
+  #make sure to do all the filtering before scaling the variables!!!!
+  mutate_at(c("mean_roll_sd", "mean_yaw_mean", "mean_yaw_sd", "mean_pitch_mean" , "mean_pitch_sd", "cumulative_pitch_8sec", 
+              "abs_cum_yaw", "wind_speed", "days_since_tagging"),
+            list(z = ~scale(.))) %>% 
+  as.data.frame()
+  
+  
 
 #### ----------------------- look at multi-collinearity
 
-laterality_circling_thin %>% 
+circling_data %>% 
   dplyr::select(c("mean_roll_sd", "mean_yaw_mean", "mean_yaw_sd", "mean_pitch_mean" , "mean_pitch_sd", "cumulative_pitch_8sec", 
-                  "abs_cum_yaw", "days_since_tagging")) %>% 
+                  "abs_cum_yaw", "days_since_tagging", "wind_speed")) %>% 
   correlate() %>% 
   corrr::stretch() %>% 
-  filter(abs(r) > 0.5) #sd of roll and pitch = 0.65; sd of yaw and cumulative yaw = 0.7
+  filter(abs(r) > 0.5) #sd of roll and pitch = 0.64; sd of yaw and cumulative yaw = 0.7
 
 #### ----------------------- exploratory plot
-ggplot(laterality_circling_thin, aes(x = factor(laterality_bi), y = abs(cumulative_yaw_8sec))) +
+ggplot(circling_data, aes(x = factor(laterality_bi), y = abs(cumulative_yaw_8sec))) +
   geom_boxplot() +
   labs(x = "Laterality", y = "Absolute Cumulative Yaw (8 sec)") +
   theme_minimal()
 
-ggplot(laterality_circling_thin, aes(x = days_since_tagging, y = abs(cumulative_yaw_8sec))) +
+ggplot(circling_data, aes(x = days_since_tagging, y = abs(cumulative_yaw_8sec))) +
   geom_point() + 
   geom_smooth(method = "lm")
 
-ggplot(laterality_circling_thin, aes(x = days_since_tagging, y = abs(cumulative_yaw_8sec))) +
+ggplot(circling_data, aes(x = days_since_tagging, y = abs(cumulative_yaw_8sec))) +
   geom_point() + 
   geom_smooth(method = "loess")
 
-ggplot(circling_thinned_100, aes(x = days_since_tagging, y = abs(cumulative_yaw_8sec))) +
+ggplot(circling_data, aes(x = days_since_tagging, y = abs(cumulative_yaw_8sec))) +
   geom_point() + 
   geom_smooth(method = "gam")
 
 
-ggplot(circling_thinned_100, aes(x = days_since_tagging, y = mean_pitch_mean)) +
+ggplot(circling_data, aes(x = days_since_tagging, y = mean_pitch_mean)) +
   geom_point() + 
   geom_smooth(method = "gam")
 
-ggplot(laterality_circling_thin, aes(x = abs(cumulative_yaw_8sec), y = mean_pitch_mean)) +
+ggplot(circling_data, aes(x = abs(cumulative_yaw_8sec), y = mean_pitch_mean)) +
   geom_point() + 
   geom_smooth(method = "gam")
 
@@ -326,7 +340,7 @@ ggplot(laterality_circling_thin, aes(x = abs(cumulative_yaw_8sec), y = mean_pitc
 
 #age as a smooth term
 #first bin the age variable
-data <- laterality_circling_thin %>% 
+data <- circling_data %>% 
   mutate(age_group = inla.group(days_since_tagging_z, n = 200, method = "quantile"))
 
 m_inla <- inla(laterality_bi ~ 1 + mean_pitch_mean_z + abs_cum_yaw_z + 
@@ -477,8 +491,8 @@ ggsave(plot = coefs_inds, filename = "/home/enourani/ownCloud - enourani@ab.mpg.
 # Extract the summary of the smooth term 
 smooth_effects <- m_inla$summary.random$age_group %>% 
   #back transform the age values
-  mutate(age = ID * attr(laterality_circling_thin[,colnames(laterality_circling_thin) == "days_since_tagging_z"],'scaled:scale') +
-           attr(laterality_circling_thin[,colnames(laterality_circling_thin) == "days_since_tagging_z"],'scaled:center') )
+  mutate(age = ID * attr(data[,colnames(data) == "days_since_tagging_z"],'scaled:scale') +
+           attr(data[,colnames(data) == "days_since_tagging_z"],'scaled:center') )
 
 # Plot the smooth term.... HIGHLIGHT MIGRATION period
 X11(width = 3.42, height = 1.5)
