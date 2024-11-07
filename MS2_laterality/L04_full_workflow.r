@@ -341,9 +341,9 @@ ggplot(circling_data, aes(x = abs(cumulative_yaw_8sec), y = mean_pitch_mean)) +
 #age as a smooth term
 #first bin the age variable
 data <- circling_data %>% 
-  mutate(age_group = inla.group(days_since_tagging_z, n = 200, method = "quantile"))
+  mutate(age_group = inla.group(days_since_tagging_z, n = 100, method = "quantile"))
 
-m_inla <- inla(laterality_bi ~ 1 + mean_pitch_mean_z + abs_cum_yaw_z + 
+m_inla <- inla(laterality_bi ~ 1 + mean_pitch_mean_z + abs_cum_yaw_z + wind_speed_z +
                  f(individual_local_identifier, mean_pitch_mean_z, model = "iid") +  
                  f(individual_local_identifier2, abs_cum_yaw_z, model = "iid") + 
                  f(age_group, model = "rw1"),
@@ -400,7 +400,7 @@ X11(width = 3.42, height = 1.5)
                color = "gray75", linewidth = 0.5) +
     geom_point(color = "#8a2be2ff", size = 2)  +
     labs(x = "Estimate", y = "") +
-    scale_y_discrete(labels = rev(c("Intercept", "Average pitch", "Absolute cumulative yaw"))) +
+    #scale_y_discrete(labels = rev(c("Intercept", "Average pitch", "Absolute cumulative yaw"))) +
     geom_linerange(aes(xmin = Lower, xmax = Upper),color = "#8a2be2ff", linewidth = 0.5) +
     ggtitle("a") +
     theme_classic() +
@@ -655,7 +655,7 @@ X11(width = 3.42, height = 2.3)
                color = "gray75", linewidth = 0.5) +
     geom_point(color = "#8a2be2ff", size = 2)  +
     labs(x = "Estimate", y = "") +
-    scale_y_discrete(labels = rev(c("Intercept", "Laterality", "Age", "Laterality:Age"))) + 
+    scale_y_discrete(labels = rev(c("Intercept", "Laterality", "Days since tagging", "Laterality:Days since tagging"))) + 
     geom_linerange(aes(xmin = Lower, xmax = Upper),color = "#8a2be2ff", linewidth = 0.5) +
     theme_classic() +
     ggtitle("a") +
@@ -769,7 +769,7 @@ preds <- data.frame(laterality_bi = data[na_rows,"laterality_bi"],
                        name = "Laterality")+
     scale_fill_manual(values = c("0" = "gray40", "1" = "#8a2be2ff"),
                       guide = F)+
-    labs(x = "Age", y = "Horizontal wobble") +
+    labs(x = "Days since tagging", y = "Horizontal wobble") +
     #labs(x = "Age", y = "Vertical wobble") +
     ggtitle("b") +
     theme_classic() +

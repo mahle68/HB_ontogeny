@@ -26,13 +26,13 @@ setwd("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projec
 #or_w_gps_df <- readRDS("thinned_laterality_w_gps.rds") #2022-08-20 17:16:14.0000 to 2024-04-15 10:00:46.0000 
 
 all_gps_apr <- readRDS("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/data/all_gps_apr15_24.rds") %>%  #2022-09-25 07:56:41.0000 to 2024-04-15 10:02:33.0000
-  filter(!is.na(individual_local_identifier)) %>% 
+  drop_na(individual_local_identifier, location_lat) %>% #remove NA individuals and NA locations.
   mutate(yr = year(timestamp),
          mn = month(timestamp),
          dy = day(timestamp),
          hr = hour(timestamp),
          unique_hr = paste(yr,mn,dy,hr, sep = "_"),
-         closest_hr = round(timestamp, units="hours") %>% as.character()) %>% 
+         closest_hr = round(timestamp, units = "hours") %>% as.character()) %>% 
   as.data.frame()
 
 all_gps_ls <- split(all_gps_apr, all_gps_apr$yr)
@@ -48,7 +48,7 @@ nc_files <- list.files("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gw
 output_path <- "/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/data/all_gps_apr24_wind_annotated/"
 
 (st_time <- Sys.time())
-lapply(all_gps_ls[1], function(x){
+lapply(all_gps_ls, function(x){
   
   #extract the year
   yr <- x$yr[1]
@@ -84,14 +84,14 @@ lapply(all_gps_ls[1], function(x){
   
   # Define the number of cores to use
   num_cores <- detectCores() - 10 #run on 2 cores
- 
-  wind_this_yr <- mclapply(x_ls[1001:1879], function(y){ #for each hour
+  
+  wind_this_yr <- mclapply(x_ls, function(y){ #for each hour
     
     #extract the unique hourc
     unique_hr <- y$closest_hr[1]
     
     # Check whether there is any wind data for this hour
-     if (any(str_detect(names(u), unique_hr))) {
+    if (any(str_detect(names(u), unique_hr))) {
       # Extract the corresponding rasters
       wind <- c(
         u[[str_which(names(u), unique_hr)]],
@@ -110,29 +110,42 @@ lapply(all_gps_ls[1], function(x){
       y_df <- y %>%
         bind_cols(as.data.frame(extracted_wind))
       
-     } else {
-       # If there are no matching wind data for this hour, create y_df with NA values
-       y_df <- y %>%
-         mutate(u_900 = as.numeric(NA),
-                v_900 = as.numeric(NA))
-     }
+    } else {
+      # If there are no matching wind data for this hour, create y_df with NA values
+      y_df <- y %>%
+        mutate(u_900 = as.numeric(NA),
+               v_900 = as.numeric(NA))
+    }
     
-      #saveRDS(y_df, paste0("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/data/all_gps_apr24_wind_annotated/by_hr_2022/wind_ann", unique_hr, ".rds" ))
-     
-      rm(wind, y)
-      
-      y_df
-      
-  }, mc.cores = num_cores) #%>% 
-  #bind_rows()
+    #saveRDS(y_df, paste0("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/data/all_gps_apr24_wind_annotated/by_hr_2022/wind_ann", unique_hr, ".rds" ))
+    
+    rm(wind, y)
+    
+    y_df
+    
+  }, mc.cores = num_cores) %>% 
+    bind_rows()
   
- 
   
-  saveRDS(wind_this_yr, file = paste0(output_path,"gps_annotated_", yr, "_r_1879.rds")) #had some issues with 2022 so had to do it in two batches.
+  
+  saveRDS(wind_this_yr, file = paste0(output_path,"gps_annotated_", yr, ".rds")) #had some issues with 2022 so had to do it in two batches.
   
 })
- Sys.time() - st_time #1.24 hours for two years
+Sys.time() - st_time #1.8 hours for three years
 
+
+#---------------------------------------------------------------
+## Step 3: put all files together and calculate wind speed #####
+#---------------------------------------------------------------
+
+ann_ls <- list.files("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/data/all_gps_apr24_wind_annotated", full.names = T) %>% 
+  map(readRDS) %>% 
+  map(bind_rows) %>% 
+  bind_rows() %>% 
+  select(1:48) %>% 
+  mutate(wind_speed =  sqrt(u_900^2 + v_900^2))
+
+saveRDS(ann_ls, file = "/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/data/all_gps_apr15_24_wind.rds")
 
 #----------------------------------------------------- 
 # ## cant set up the API. downloading from the gui
