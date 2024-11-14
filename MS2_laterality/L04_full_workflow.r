@@ -20,7 +20,7 @@ library(performance)
 library(corrr)
 library(gridExtra)
 
-setwd("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/R_files/")
+setwd("/home/mahle68/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/R_files/")
 
 #------------------------------------------------------------
 ## Step 1: calculate euler angles, and laterality index #####
@@ -336,23 +336,23 @@ circling_data <- readRDS("thinned_laterality_for_modeling.rds")
 
 #to make sure the predictions cover the parameter space, create a dataset with all possible combinations. The max of the variables might be outliers, so use the 90% quantile instead
 grd_pitch_yaw <- expand.grid(x = seq(from = quantile(circling_data$mean_pitch_mean, .01, na.rm = T), to = max(circling_data$mean_pitch_mean, na.rm = T),  length.out = 50),
-                             y = seq(from = quantile(circling_data$abs_cum_yaw, .01, na.rm = T), to = quantile(circling_data$abs_cum_yaw, .99, na.rm = T),  length.out = 50)) %>% 
+                             y = seq(from = min(circling_data$abs_cum_yaw, na.rm = T), to = quantile(circling_data$abs_cum_yaw, .99, na.rm = T),  length.out = 50)) %>% 
   rename(mean_pitch_mean = x,
          abs_cum_yaw = y)  %>% 
   mutate(wind_speed = attr(circling_data[,colnames(circling_data) == "wind_speed_z"],'scaled:center'), #set other variables to their mean
          days_since_tagging = attr(circling_data[,colnames(circling_data) == "days_since_tagging_z"],'scaled:center'),
          interaction = "pitch_yaw")
 
-grd_wind_yaw <- expand.grid(x = seq(from = quantile(circling_data$wind_speed, .01, na.rm = T), to = quantile(circling_data$wind_speed, .99, na.rm = T),  length.out = 50),
-                            y = seq(from = quantile(circling_data$abs_cum_yaw, .01, na.rm = T), to = quantile(circling_data$abs_cum_yaw, .99, na.rm = T),  length.out = 50)) %>% 
+grd_wind_yaw <- expand.grid(x = seq(from = min(circling_data$wind_speed,na.rm = T), to = max(circling_data$wind_speed, na.rm = T),  length.out = 50),
+                            y = seq(from = min(circling_data$abs_cum_yaw, na.rm = T), to = quantile(circling_data$abs_cum_yaw, .99, na.rm = T),  length.out = 50)) %>% 
   rename(wind_speed = x,
          abs_cum_yaw = y)  %>% 
   mutate(mean_pitch_mean = attr(circling_data[,colnames(circling_data) == "mean_pitch_mean_z"],'scaled:center'), #set other variables to their mean
          days_since_tagging = attr(circling_data[,colnames(circling_data) == "days_since_tagging_z"],'scaled:center'),
          interaction = "wind_yaw")
 
-grd_wind_pitch <- expand.grid(x = seq(from = quantile(circling_data$wind_speed, .01, na.rm = T), to = quantile(circling_data$wind_speed, .99, na.rm = T),  length.out = 50),
-                              y = seq(from = quantile(circling_data$mean_pitch_mean, .01, na.rm = T), to = quantile(circling_data$mean_pitch_mean, .99, na.rm = T),  length.out = 50)) %>% 
+grd_wind_pitch <- expand.grid(x = seq(from = min(circling_data$wind_speed,na.rm = T), to = max(circling_data$wind_speed, na.rm = T),  length.out = 50),
+                              y = seq(from = quantile(circling_data$mean_pitch_mean, .01, na.rm = T), to = max(circling_data$mean_pitch_mean, na.rm = T),  length.out = 50)) %>% 
   rename(wind_speed = x,
          mean_pitch_mean = y)  %>% 
   mutate(abs_cum_yaw = attr(circling_data[,colnames(circling_data) == "abs_cum_yaw_z"],'scaled:center'), #set other variables to their mean
@@ -592,87 +592,123 @@ ggsave(plot = model_output_p, filename = "/home/mahle68/ownCloud - enourani@ab.m
 
 #### plot the interaction terms -----------------------------------------------------------------------------
 
-terms <- unique(data$interaction)[-1] #remove the NA
+## yaw:pitch----------------------------------------------------------------
+#extract information for rows that had NAs as response variables
+na_rows <- which(data$interaction == "pitch_yaw")
 
-for(i in terms){
-  if(i == "pitch_yaw"){
-    
-    #extract information for rows that had NAs as response variables
-    na_rows <- which(data$interaction == i)
-    
-    preds <- data.frame(yaw = data[na_rows,"abs_cum_yaw"],
-                        pitch = data[na_rows,"mean_pitch_mean"],
-                        preds = m_inla$summary.fitted.values[na_rows,"mean"]) %>% 
-      #do some interpolation to smooth the plot
-      terra::rast(type = "xyz") %>%
-      focal(w = 3, fun = "mean", na.policy = "all", na.rm = T) %>% 
-      as.data.frame(xy = T) %>%
-      rename(preds = focal_mean)
-    
-    #plot
-    X11(width = 7, height = 2)
-    (pred_py <- preds %>% 
-        ggplot() +
-        geom_tile(aes(x = x, y = y, fill = preds)) +
-        scale_fill_gradientn(colors = c("#440154FF", "#39568CFF" ,"#20A387FF", "#83e22b", "#FDE725FF"),
-                             values = c(0.2, 0.5, 0.6, 0.7, 0.9),
-                             limits = c(0, 1),
-                             na.value = "white",
-                             name = "Probability of Laterality") +
-        guides(fill = guide_colourbar(title.vjust = .95)) + # the legend title needs to move up a bit
-        labs(x = "Absolute cumulative yaw", y = "Average pitch") +
-        ggtitle("a") +
-        theme_classic() +
-        theme(text = element_text(size = 11),
-              legend.text = element_text(size = 8),
-              legend.title = element_text(size = 9),
-              panel.grid.minor = element_line(color = "white"),
-              axis.title.x = element_text(margin = margin(t = 5))) + # increase distance between x-axis values and title
-        scale_x_continuous(expand = c(0, 0)) + #remove space between the raster and the axis
-        scale_y_continuous(expand = c(0, 0))
-    )
-  }else if(i == "wind_yaw"){
-    
-    #extract information for rows that had NAs as response variables
-    na_rows <- which(data$interaction == i)
-    
-    preds <- data.frame(yaw = data[na_rows,"abs_cum_yaw"],
-                        pitch = data[na_rows,"mean_pitch_mean"],
-                        preds = m_inla$summary.fitted.values[na_rows,"mean"]) %>% 
-      #do some interpolation to smooth the plot
-      terra::rast(type = "xyz") %>%
-      focal(w = 3, fun = "mean", na.policy = "all", na.rm = T) %>% 
-      as.data.frame(xy = T) %>%
-      rename(preds = focal_mean)
-    
-    #plot
-    X11(width = 7, height = 2)
-    (pred_py <- preds %>% 
-        ggplot() +
-        geom_tile(aes(x = x, y = y, fill = preds)) +
-        scale_fill_gradientn(colors = c("#440154FF", "#39568CFF" ,"#20A387FF", "#83e22b", "#FDE725FF"),
-                             values = c(0.2, 0.5, 0.6, 0.7, 0.9),
-                             limits = c(0, 1),
-                             na.value = "white",
-                             name = "Probability of Laterality") +
-        guides(fill = guide_colourbar(title.vjust = .95)) + # the legend title needs to move up a bit
-        labs(x = "Absolute cumulative yaw", y = "Average pitch") +
-        ggtitle("a") +
-        theme_classic() +
-        theme(text = element_text(size = 11),
-              legend.text = element_text(size = 8),
-              legend.title = element_text(size = 9),
-              panel.grid.minor = element_line(color = "white"),
-              axis.title.x = element_text(margin = margin(t = 5))) + # increase distance between x-axis values and title
-        scale_x_continuous(expand = c(0, 0)) + #remove space between the raster and the axis
-        scale_y_continuous(expand = c(0, 0))
-    )
-  }
-}
+preds <- data.frame(yaw = data[na_rows,"abs_cum_yaw"],
+                    pitch = data[na_rows,"mean_pitch_mean"],
+                    preds = m_inla$summary.fitted.values[na_rows,"mean"]) %>% 
+  #do some interpolation to smooth the plot
+  terra::rast(type = "xyz") %>%
+  focal(w = 3, fun = "mean", na.policy = "all", na.rm = T) %>% 
+  as.data.frame(xy = T) %>%
+  rename(preds = focal_mean)
+
+#plot
+#X11(width = 7, height = 2)
+pred_py <- preds %>% 
+  ggplot() +
+  geom_tile(aes(x = x, y = y, fill = preds)) +
+  scale_fill_gradientn(colors = c("#440154FF", "#39568CFF" ,"#20A387FF", "#83e22b", "#FDE725FF"),
+                       values = c(0, 0.5, 0.6, 0.7, 1),
+                       limits = c(0, 1),
+                       na.value = "white",
+                       name = "Probability of Laterality") +
+  guides(fill = guide_colourbar(title.vjust = .95)) + # the legend title needs to move up a bit
+  labs(x = "Absolute cumulative yaw", y = "Average pitch") +
+  ggtitle("a") +
+  theme_classic() +
+  theme(text = element_text(size = 11),
+        legend.text = element_text(size = 8),
+        legend.title = element_text(size = 9),
+        panel.grid.minor = element_line(color = "white"),
+        axis.title.x = element_text(margin = margin(t = 5))) + # increase distance between x-axis values and title
+  scale_x_continuous(expand = c(0, 0)) + #remove space between the raster and the axis
+  scale_y_continuous(expand = c(0, 0))
 
 
+## wind:yaw----------------------------------------------------------------
+#extract information for rows that had NAs as response variables
+na_rows <- which(data$interaction == "wind_yaw")
+
+preds <- data.frame(yaw = data[na_rows,"abs_cum_yaw"],
+                    wind = data[na_rows,"wind_speed"],
+                    preds = m_inla$summary.fitted.values[na_rows,"mean"]) %>% 
+  #do some interpolation to smooth the plot
+  terra::rast(type = "xyz") %>%
+  focal(w = 3, fun = "mean", na.policy = "all", na.rm = T) %>% 
+  as.data.frame(xy = T) %>%
+  rename(preds = focal_mean)
+
+#plot
+#X11(width = 7, height = 2)
+pred_wy <- preds %>% 
+  ggplot() +
+  geom_tile(aes(x = x, y = y, fill = preds)) +
+  scale_fill_gradientn(colors = c("#440154FF", "#39568CFF" ,"#20A387FF", "#83e22b", "#FDE725FF"),
+                       values = c(0, 0.5, 0.6, 0.7, 1),
+                       limits = c(0, 1),
+                       na.value = "white",
+                       name = "Probability of Laterality") +
+  guides(fill = guide_colourbar(title.vjust = .95)) + # the legend title needs to move up a bit
+  labs(x = "Absolute cumulative yaw", y = "Wind speed") +
+  ggtitle("b") +
+  theme_classic() +
+  theme(text = element_text(size = 11),
+        legend.text = element_text(size = 8),
+        legend.title = element_text(size = 9),
+        panel.grid.minor = element_line(color = "white"),
+        axis.title.x = element_text(margin = margin(t = 5))) + # increase distance between x-axis values and title
+  scale_x_continuous(expand = c(0, 0)) + #remove space between the raster and the axis
+  scale_y_continuous(expand = c(0, 0))
 
 
+##wind:pitch----------------------------------------------------------------
+
+#extract information for rows that had NAs as response variables
+na_rows <- which(data$interaction == "wind_pitch")
+
+preds <- data.frame(pitch = data[na_rows,"mean_pitch_mean"],
+                    wind = data[na_rows,"wind_speed"],
+                    preds = m_inla$summary.fitted.values[na_rows,"mean"]) %>% 
+  #do some interpolation to smooth the plot
+  terra::rast(type = "xyz") %>%
+  focal(w = 3, fun = "mean", na.policy = "all", na.rm = T) %>% 
+  as.data.frame(xy = T) %>%
+  rename(preds = focal_mean)
+
+#plot
+#X11(width = 7, height = 2)
+pred_wp <- preds %>% 
+  ggplot() +
+  geom_tile(aes(x = x, y = y, fill = preds)) +
+  scale_fill_gradientn(colors = c("#440154FF", "#39568CFF" ,"#20A387FF", "#83e22b", "#FDE725FF"),
+                       values = c(0, 0.5, 0.6, 0.7, 1),
+                       limits = c(0, 1),
+                       na.value = "white",
+                       name = "Probability of Laterality") +
+  guides(fill = guide_colourbar(title.vjust = .95)) + # the legend title needs to move up a bit
+  labs(x = "Average pitch", y = "Wind speed") +
+  ggtitle("c") +
+  theme_classic() +
+  theme(text = element_text(size = 11),
+        legend.text = element_text(size = 8),
+        legend.title = element_text(size = 9),
+        panel.grid.minor = element_line(color = "white"),
+        axis.title.x = element_text(margin = margin(t = 5))) + # increase distance between x-axis values and title
+  scale_x_continuous(expand = c(0, 0)) + #remove space between the raster and the axis
+  scale_y_continuous(expand = c(0, 0))
+
+
+
+
+#combine the three plots for the coefficients and the interaction term--------------
+X11(width = 7, height = 6)
+combined <- pred_py + pred_wy + pred_wp & theme(legend.position = "right")
+p <- combined + plot_layout(guides = "collect", nrow = 3)
+
+model_output_p <- grid.arrange(coefs, pred_p, nrow = 1, widths = c(0.4, 0.6))
 
 #-----------------------------------------------------------------------------------------------------------------------
 ## Step 5.1: Does laterality help with better performance when individuals are not experienced? Flight performance #####
