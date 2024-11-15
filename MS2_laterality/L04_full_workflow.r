@@ -19,6 +19,7 @@ library(terra)
 library(performance)
 library(corrr)
 library(gridExtra)
+library(patchwork)
 
 setwd("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/R_files/")
 
@@ -778,11 +779,6 @@ data <- circling_data %>%
          individual_local_identifier = as.factor(individual_local_identifier))
 
 #### run the models one at a time! for pitch and yaw separately
-m_inla_p <- inla(mean_pitch_sd_z ~ 1 + laterality_bi * age_group * wind_speed_z +
-                   f(individual_local_identifier, age_group, model = "iid"),
-                 data = data,
-                 control.compute = list(cpo = TRUE),
-                 control.predictor = list(link = 1, compute = TRUE)) #compute=t means that NA values will be predicted
 
 #long-transform instead of z-transform, to make sure response values are positive
 m_inla_p <- inla(log(mean_pitch_sd) ~ 1 + laterality_bi * age_group * wind_speed_z +
@@ -791,7 +787,8 @@ m_inla_p <- inla(log(mean_pitch_sd) ~ 1 + laterality_bi * age_group * wind_speed
                  control.compute = list(cpo = TRUE),
                  control.predictor = list(link = 1, compute = TRUE)) #compute=t means that NA values will be predicted
 
-m_inla_y <- inla(mean_yaw_sd_z ~ 1 + laterality_bi * age_group * wind_speed_z +
+### the predictions are too large.... consider using a link function.
+m_inla_y <- inla(log(mean_yaw_sd) ~ 1 + laterality_bi * age_group * wind_speed_z +
                    f(individual_local_identifier, age_group, model = "iid"),
                  data = data,
                  control.compute = list(cpo = TRUE),
@@ -804,43 +801,45 @@ m_inla_y <- inla(mean_yaw_sd_z ~ 1 + laterality_bi * age_group * wind_speed_z +
 data.frame(CPO = mean(m_inla_p$cpo$cpo, na.rm = T), # 0.49 with log transformation
            Mlik = as.numeric(m_inla_p$mlik[,1][2])) # -17933.39
 
-data.frame(CPO = mean(m_inla_y$cpo$cpo, na.rm = T), # 0.27 #improves when predicting the z-transformed variable
-           Mlik = as.numeric(m_inla_y$mlik[,1][2])) # --28594.11
+data.frame(CPO = mean(m_inla_y$cpo$cpo, na.rm = T), # 0.32 #improves when predicting the z-transformed variable
+           Mlik = as.numeric(m_inla_y$mlik[,1][2])) # -24833.32
 
 #### pitch_model: coefficients plot -----------------------------------------------------------------------------
 
 # posterior means of coefficients
-graph <- as.data.frame(summary(m_inla_p)$fixed)
-colnames(graph)[which(colnames(graph)%in%c("0.025quant","0.975quant"))]<-c("Lower","Upper")
-colnames(graph)[which(colnames(graph)%in%c("0.05quant","0.95quant"))]<-c("Lower","Upper")
-colnames(graph)[which(colnames(graph)%in%c("mean"))]<-c("Estimate")
+graph_p <- as.data.frame(summary(m_inla_p)$fixed)
+colnames(graph_p)[which(colnames(graph_p)%in%c("0.025quant","0.975quant"))]<-c("Lower","Upper")
+colnames(graph_p)[which(colnames(graph_p)%in%c("0.05quant","0.95quant"))]<-c("Lower","Upper")
+colnames(graph_p)[which(colnames(graph_p)%in%c("mean"))]<-c("Estimate")
 
-#graph$Model<-i
-graph$Factor <- rownames(graph)
+graph_p$Factor <- rownames(graph_p)
 
 #remove weeks since dispersal
-VarOrder <- rev(unique(graph$Factor))
+VarOrder <- rev(unique(graph_p$Factor))
 VarNames <- VarOrder
 
-graph$Factor <- factor(graph$Factor, levels = VarOrder)
-levels(graph$Factor) <- VarNames
+graph_p$Factor <- factor(graph_p$Factor, levels = VarOrder)
+levels(graph_p$Factor) <- VarNames
 
-#graph$Factor_n <- as.numeric(graph$Factor)
+
+#after log-transforming the response, the intercept becomes too big....  remove it for easier visualization. report it in the caption of the figure
+graph_p <- graph_p[-1,]
 
 #plot the coefficients
 X11(width = 7, height = 3)
-(coefs_p <- ggplot(graph, aes(x = Estimate, y = Factor)) +
+(coefs_p <- ggplot(graph_p, aes(x = Estimate, y = Factor)) +
     geom_vline(xintercept = 0, linetype="dashed", 
                color = "gray75", linewidth = 0.5) +
     geom_point(color = "#8a2be2ff", size = 2)  +
     labs(x = "Estimate", y = "") +
-    scale_y_discrete(labels = rev(c("Intercept", "Laterality", "Days since tagging", 
+    scale_y_discrete(labels = rev(c("Laterality", "Days since tagging", 
                                     "Wind speed", "Laterality: Days since tagging", "Laterality: Wind speed",
                                     "Days since tagging: Wind speed", "Laterality: Days since tagging:\nWind speed "))) + 
     geom_linerange(aes(xmin = Lower, xmax = Upper),color = "#8a2be2ff", linewidth = 0.5) +
     theme_classic() +
     ggtitle("a") +
-    theme(text = element_text(size = 11),
+    theme(plot.margin = margin(0, 0, 0, 0, "pt"),
+          text = element_text(size = 11),
           legend.text = element_text(size = 10),
           legend.title = element_text(size = 9),
           #axis.text = element_text(color = "gray45"),
@@ -877,12 +876,12 @@ random_effects_age <- m_inla_p$summary.random$individual_local_identifier
 ind_IDs <- unique(data$individual_local_identifier)
 
 age <- random_effects_age %>% 
-  mutate(coef = mean + graph %>% filter(Factor == "age_group") %>% pull(Estimate),
-         lower = .[,4] +  graph %>% filter(Factor == "age_group") %>% pull(Lower),
-         upper = .[,6] +  graph %>% filter(Factor == "age_group") %>% pull(Upper),
+  mutate(coef = mean + graph_p %>% filter(Factor == "age_group") %>% pull(Estimate),
+         lower = .[,4] +  graph_p %>% filter(Factor == "age_group") %>% pull(Lower),
+         upper = .[,6] +  graph_p %>% filter(Factor == "age_group") %>% pull(Upper),
          variable = "age_group") %>% 
   full_join(handedness, by = c("ID" = "individual_local_identifier")) %>% 
-  mutate(v_line =  graph %>% filter(Factor == "age_group") %>% pull(Estimate))
+  mutate(v_line =  graph_p %>% filter(Factor == "age_group") %>% pull(Estimate))
 
 #re-order the individuals based on the laterality index
 age$ID <- reorder(age$ID, desc(age$laterality_dir))
@@ -890,7 +889,7 @@ age$ID <- reorder(age$ID, desc(age$laterality_dir))
 X11(width = 7, height = 5)
 (coefs_inds_p <- ggplot(age, aes(x = coef, y = ID, color = laterality_dir)) +
     geom_vline(data = age, 
-               aes(xintercept = graph %>% filter(Factor == "age_group") %>% pull(Estimate)), linetype = "dashed", color = "gray75",size = 0.5) + 
+               aes(xintercept = graph_p %>% filter(Factor == "age_group") %>% pull(Estimate)), linetype = "dashed", color = "gray75",size = 0.5) + 
     geom_point(size = 2, position = position_dodge(width = .7))  +
     geom_linerange(aes(xmin = lower, xmax = upper), size = 0.8, position = position_dodge(width = .7)) +
     scale_color_manual(values = c("left_handed" = "#33638DFF" , "ambidextrous" = "#20A387FF", "right_handed" = "#B8DE29FF"),
@@ -920,6 +919,8 @@ na_rows <- which(is.na(data$mean_pitch_sd_z))
 preds_p <- data.frame(days_since_tagging = data[na_rows,"days_since_tagging"],
                       wind = data[na_rows,"wind_speed"],
                       preds = m_inla_p$summary.fitted.values[na_rows,"mean"]) %>% 
+  #back-transform the log values
+  mutate(preds = exp(preds)) %>% 
   #back-transform the z-scores back to sd_pitch values
   #mutate(preds = preds * attr(circling_data[,colnames(circling_data) == "mean_pitch_sd_z"],'scaled:center') +
   #         attr(circling_data[,colnames(circling_data) == "mean_pitch_sd_z"],'scaled:scale')) %>% 
@@ -931,21 +932,25 @@ preds_p <- data.frame(days_since_tagging = data[na_rows,"days_since_tagging"],
 
 #plot
 #X11(width = 7, height = 2)
-pred_py <- preds_p %>% 
+pred_dw <- preds_p %>% 
   ggplot() +
   geom_tile(aes(x = x, y = y, fill = preds)) +
   scale_fill_gradientn(colors = c("#440154FF", "#39568CFF" ,"#20A387FF", "#83e22b", "#FDE725FF"),
-                       values = c(0, 0.5, 0.6, 0.7, 1),
-                       limits = c(0, 1),
+                       values = c(0, 0.5, 0.7, 4.7),
+                       limits = c(0, 5),
                        na.value = "white",
-                       name = "Probability of Laterality") +
+                       name = "Pitch \nwobble") +
   guides(fill = guide_colourbar(title.vjust = .95)) + # the legend title needs to move up a bit
-  labs(x = "Absolute cumulative yaw", y = "Average pitch") +
-  ggtitle("a") +
+  labs(x = "Days since tagging", y = "Wind speed") +
+  ggtitle("b") +
   theme_classic() +
-  theme(text = element_text(size = 11),
+  theme(plot.margin = margin(0, 0, 0, 0, "pt"),
+        text = element_text(size = 11),
+        legend.key.width=unit(.25,"cm"),
+        legend.key.height=unit(.4,"cm"),
         legend.text = element_text(size = 8),
         legend.title = element_text(size = 9),
+        legend.margin = margin(0, 0, 0, 0), # Reduce margin around the legend
         panel.grid.minor = element_line(color = "white"),
         axis.title.x = element_text(margin = margin(t = 5))) + # increase distance between x-axis values and title
   scale_x_continuous(expand = c(0, 0)) + #remove space between the raster and the axis
@@ -954,12 +959,9 @@ pred_py <- preds_p %>%
 
 #combine the two plots for the coefficients and the interaction term
 X11(width = 7, height = 2.3)
-model_output_p <- grid.arrange(coefs, pred_p, nrow = 1, widths = c(0.4, 0.6))
+model_output_p <- grid.arrange(coefs_p, pred_dw, nrow = 1, widths = c(0.6, 0.4))
 
-#ggsave(plot = model_output_p, filename = "/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/paper_prep/MS2_laterality/figures/sd_yaw_model_output.pdf", 
-#       device = "pdf", width = 7, height = 2.3, dpi = 600)
-
-ggsave(plot = model_output_p, filename = "/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/paper_prep/MS2_laterality/figures/sd_pitch_model_output.pdf", 
+ggsave(plot = model_output_p, filename = "/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/paper_prep/MS2_laterality/figures/sd_pitch_model_ws_output.pdf", 
        device = "pdf", width = 7, height = 2.3, dpi = 600)
 
 
@@ -967,37 +969,39 @@ ggsave(plot = model_output_p, filename = "/home/enourani/ownCloud - enourani@ab.
 #### yaw_model: coefficients plot -----------------------------------------------------------------------------
 
 # posterior means of coefficients
-graph <- as.data.frame(summary(m_inla_y)$fixed)
-colnames(graph)[which(colnames(graph)%in%c("0.025quant","0.975quant"))]<-c("Lower","Upper")
-colnames(graph)[which(colnames(graph)%in%c("0.05quant","0.95quant"))]<-c("Lower","Upper")
-colnames(graph)[which(colnames(graph)%in%c("mean"))]<-c("Estimate")
+graph_y <- as.data.frame(summary(m_inla_y)$fixed)
+colnames(graph_y)[which(colnames(graph_y)%in%c("0.025quant","0.975quant"))]<-c("Lower","Upper")
+colnames(graph_y)[which(colnames(graph_y)%in%c("0.05quant","0.95quant"))]<-c("Lower","Upper")
+colnames(graph_y)[which(colnames(graph_y)%in%c("mean"))]<-c("Estimate")
 
-#graph$Model<-i
-graph$Factor <- rownames(graph)
+graph_y$Factor <- rownames(graph_y)
 
 #remove weeks since dispersal
-VarOrder <- rev(unique(graph$Factor))
+VarOrder <- rev(unique(graph_y$Factor))
 VarNames <- VarOrder
 
-graph$Factor <- factor(graph$Factor, levels = VarOrder)
-levels(graph$Factor) <- VarNames
+graph_y$Factor <- factor(graph_y$Factor, levels = VarOrder)
+levels(graph_y$Factor) <- VarNames
 
-#graph$Factor_n <- as.numeric(graph$Factor)
+
+#after log-transforming the response, the intercept becomes too big....  remove it for easier visualization. report it in the caption of the figure
+graph_y <- graph_y[-1,]
 
 #plot the coefficients
 X11(width = 7, height = 3)
-(coefs <- ggplot(graph, aes(x = Estimate, y = Factor)) +
+(coefs_y <- ggplot(graph_y, aes(x = Estimate, y = Factor)) +
     geom_vline(xintercept = 0, linetype="dashed", 
                color = "gray75", linewidth = 0.5) +
     geom_point(color = "#8a2be2ff", size = 2)  +
     labs(x = "Estimate", y = "") +
-    scale_y_discrete(labels = rev(c("Intercept", "Laterality", "Days since tagging", 
+    scale_y_discrete(labels = rev(c("Laterality", "Days since tagging", 
                                     "Wind speed", "Laterality: Days since tagging", "Laterality: Wind speed",
                                     "Days since tagging: Wind speed", "Laterality: Days since tagging:\nWind speed "))) + 
     geom_linerange(aes(xmin = Lower, xmax = Upper),color = "#8a2be2ff", linewidth = 0.5) +
     theme_classic() +
     ggtitle("a") +
-    theme(text = element_text(size = 11),
+    theme(plot.margin = margin(0, 0, 0, 0, "pt"),
+          text = element_text(size = 11),
           legend.text = element_text(size = 10),
           legend.title = element_text(size = 9),
           #axis.text = element_text(color = "gray45"),
@@ -1006,12 +1010,8 @@ X11(width = 7, height = 3)
           axis.title.x = element_text(margin = margin(t = 5))) #increase distance between x-axis values and title
 )
 
-# ggsave(plot = coefs, filename = "/home/mahle68/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/paper_prep/MS2_laterality/figures/sd_yaw_model_coeffs.pdf", 
-#        device = "pdf", width = 3.42, height = 1.5, dpi = 600)
-# 
-# ggsave(plot = coefs, filename = "/home/mahle68/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/paper_prep/MS2_laterality/figures/sd_pitch_model_coeffs.pdf", 
-#        device = "pdf", width = 3.42, height = 1.5, dpi = 600)
-
+ggsave(plot = coefs_y, filename = "/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/paper_prep/MS2_laterality/figures/sd_yaw_model_ws_coeffs.pdf", 
+       device = "pdf", width = 7, height = 3, dpi = 600)
 
 ## conclusions: horizontal wobble (sd_yaw) goes down with age and with laterality,
 ## vertical wobble (sd_pitch) goes up with age and laterality, BUT there is a negative interaction term
@@ -1023,7 +1023,7 @@ X11(width = 7, height = 3)
 #### yaw_model: ind_specific coefficients plot -----------------------------------------------------------------------------
 
 #extract handedness for each individual. to use for coloring
-handedness <- readRDS("/home/mahle68/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/R_files/circling_w_LI_population.rds") %>% 
+handedness <- readRDS("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/R_files/circling_w_LI_population.rds") %>% 
   group_by(individual_local_identifier) %>% 
   slice(1) %>% 
   ungroup() %>% 
@@ -1037,20 +1037,20 @@ random_effects_age <- m_inla_y$summary.random$individual_local_identifier
 ind_IDs <- unique(data$individual_local_identifier)
 
 age <- random_effects_age %>% 
-  mutate(coef = mean + graph %>% filter(Factor == "age_group") %>% pull(Estimate),
-         lower = .[,4] +  graph %>% filter(Factor == "age_group") %>% pull(Lower),
-         upper = .[,6] +  graph %>% filter(Factor == "age_group") %>% pull(Upper),
+  mutate(coef = mean + graph_y %>% filter(Factor == "age_group") %>% pull(Estimate),
+         lower = .[,4] +  graph_y %>% filter(Factor == "age_group") %>% pull(Lower),
+         upper = .[,6] +  graph_y %>% filter(Factor == "age_group") %>% pull(Upper),
          variable = "age_group") %>% 
   full_join(handedness, by = c("ID" = "individual_local_identifier")) %>% 
-  mutate(v_line =  graph %>% filter(Factor == "age_group") %>% pull(Estimate))
+  mutate(v_line =  graph_y %>% filter(Factor == "age_group") %>% pull(Estimate))
 
 #re-order the individuals based on the laterality index
 age$ID <- reorder(age$ID, desc(age$laterality_dir))
 
-X11(width = 7, height = 9)
-(coefs_inds <- ggplot(age, aes(x = coef, y = ID, color = laterality_dir)) +
+X11(width = 7, height = 5)
+(coefs_inds_y <- ggplot(age, aes(x = coef, y = ID, color = laterality_dir)) +
     geom_vline(data = age, 
-               aes(xintercept = graph %>% filter(Factor == "age_group") %>% pull(Estimate)), linetype = "dashed", color = "gray75",size = 0.5) + 
+               aes(xintercept = graph_y %>% filter(Factor == "age_group") %>% pull(Estimate)), linetype = "dashed", color = "gray75",size = 0.5) + 
     geom_point(size = 2, position = position_dodge(width = .7))  +
     geom_linerange(aes(xmin = lower, xmax = upper), size = 0.8, position = position_dodge(width = .7)) +
     scale_color_manual(values = c("left_handed" = "#33638DFF" , "ambidextrous" = "#20A387FF", "right_handed" = "#B8DE29FF"),
@@ -1062,77 +1062,61 @@ X11(width = 7, height = 9)
     theme(text = element_text(size = 11),
           legend.text = element_text(size = 10),
           legend.title = element_text(size = 9),
-          #axis.text = element_text(color = "gray45"),
-          #panel.grid.major = element_line(color = "gray75"),
           panel.grid.minor = element_line(color = "white"),
           axis.title.x = element_text(margin = margin(t = 5)))  #increase distance between x-axis values and title
 )
 
-ggsave(plot = coefs_inds, filename = "/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/paper_prep/MS2_laterality/figures/sd_yaw_model_coeffs_inds.pdf", 
-       device = "pdf", width = 7, height = 9, dpi = 600)
-
-ggsave(plot = coefs_inds, filename = "/home/mahle68/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/paper_prep/MS2_laterality/figures/sd_pitch_model_coeffs_inds.pdf", 
-       device = "pdf", width = 7, height = 9, dpi = 600)
-
+ggsave(plot = coefs_inds_y, filename = "/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/paper_prep/MS2_laterality/figures/sd_yaw_model_ws_coeffs_inds.pdf", 
+       device = "pdf", width = 7, height = 5, dpi = 600)
 
 #### yaw_model: interaction plot -----------------------------------------------------------------------------
 #extract information for rows that had NAs as response variables
-#run the line that corresponds with the model being run!!
 na_rows <- which(is.na(data$mean_yaw_sd_z))
-na_rows <- which(is.na(data$mean_pitch_sd_z))
 
-preds <- data.frame(laterality_bi = data[na_rows,"laterality_bi"],
-                    age_group = data[na_rows,"age_group"],
-                    wind_speed = data[na_rows, "wind_speed"],
-                    preds = m_inla_y$summary.fitted.values[na_rows,"mean"],
-                    lower95 = m_inla_y$summary.fitted.values[na_rows,"0.025quant"],
-                    upper95 = m_inla_y$summary.fitted.values[na_rows,"0.975quant"]) %>% 
-  #back transform the age values
-  mutate(age = age_group * sd(circling_data$days_since_tagging) + mean(circling_data$days_since_tagging),
-         preds_yaw = preds * sd(circling_data$mean_yaw_sd) + mean(circling_data$mean_yaw_sd))
-#preds_pitch = preds * sd(laterality_circling_thin$mean_pitch_sd) + mean(laterality_circling_thin$mean_pitch_sd),
-#upper = upper95 * sd(laterality_circling_thin$mean_pitch_sd) + mean(laterality_circling_thin$mean_pitch_sd),
-#lower = lower95 * sd(laterality_circling_thin$mean_pitch_sd) + mean(laterality_circling_thin$mean_pitch_sd))
-
+preds_y <- data.frame(days_since_tagging = data[na_rows,"days_since_tagging"],
+                      wind = data[na_rows,"wind_speed"],
+                      preds = m_inla_y$summary.fitted.values[na_rows,"mean"]) %>% 
+  #back-transform the log values
+  mutate(preds = exp(preds)) %>% 
+  #do some interpolation to smooth the plot
+  terra::rast(type = "xyz") %>%
+  focal(w = 3, fun = "mean", na.policy = "all", na.rm = T) %>% 
+  as.data.frame(xy = T) %>%
+  rename(preds = focal_mean)
 
 #plot
-(pred_p <- preds %>% 
-    ggplot() +
-    geom_point(aes(x = age, y = preds_yaw, color = laterality_bi), size = 0.2) +
-    #geom_line(aes(x = age, y = preds_pitch, color = laterality_bi), linewidth = 0.5) +
-    #geom_ribbon(aes(x = age, y = preds_pitch, fill = laterality_bi, ymin = lower, ymax = upper), alpha = 0.75) +
-    geom_smooth(aes(x = age, y = preds_yaw, color = laterality_bi, fill = laterality_bi), method = "lm", se = T, alpha = 0.3, linewidth = 0.3) +
-    scale_color_manual(values = c("0" = "gray40", "1" = "#8a2be2ff"),
-                       name = "Laterality")+
-    scale_fill_manual(values = c("0" = "gray40", "1" = "#8a2be2ff"),
-                      guide = F)+
-    labs(x = "Days since tagging", y = "Horizontal wobble") +
-    #labs(x = "Age", y = "Vertical wobble") +
-    ggtitle("b") +
-    theme_classic() +
-    guides(colour = guide_legend(override.aes = list(fill = c("0" = "gray40", "1" = "#8a2be2ff"),
-                                                     alpha = 0.5))) +
-    #xlim(1, 300) +
-    theme(text = element_text(size = 11),
-          legend.text = element_text(size = 10),
-          legend.title = element_text(size = 9),
-          #axis.text = element_text(color = "gray45"),
-          #panel.grid.major = element_line(color = "gray75"),
-          panel.grid.minor = element_line(color = "white"),
-          axis.title.x = element_text(margin = margin(t = 5)))
-)
+#X11(width = 7, height = 2)
+pred_dw <- preds_y %>% 
+  ggplot() +
+  geom_tile(aes(x = x, y = y, fill = preds)) +
+  scale_fill_gradientn(colors = c("#440154FF", "#39568CFF" ,"#20A387FF", "#83e22b", "#FDE725FF"),
+                       values = c(0, 3.5, 4, 20, 270),
+                       limits = c(0, 5),
+                       na.value = "white",
+                       name = "Yaw \nwobble") +
+  guides(fill = guide_colourbar(title.vjust = .95)) + # the legend title needs to move up a bit
+  labs(x = "Days since tagging", y = "Wind speed") +
+  ggtitle("b") +
+  theme_classic() +
+  theme(plot.margin = margin(0, 0, 0, 0, "pt"),
+        text = element_text(size = 11),
+        legend.key.width=unit(.25,"cm"),
+        legend.key.height=unit(.4,"cm"),
+        legend.text = element_text(size = 8),
+        legend.title = element_text(size = 9),
+        legend.margin = margin(0, 0, 0, 0), # Reduce margin around the legend
+        panel.grid.minor = element_line(color = "white"),
+        axis.title.x = element_text(margin = margin(t = 5))) + # increase distance between x-axis values and title
+  scale_x_continuous(expand = c(0, 0)) + #remove space between the raster and the axis
+  scale_y_continuous(expand = c(0, 0))
 
 
 #combine the two plots for the coefficients and the interaction term
 X11(width = 7, height = 2.3)
-model_output_p <- grid.arrange(coefs, pred_p, nrow = 1, widths = c(0.4, 0.6))
+model_output_y <- grid.arrange(coefs_y, pred_dw, nrow = 1, widths = c(0.6, 0.4))
 
-#ggsave(plot = model_output_p, filename = "/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/paper_prep/MS2_laterality/figures/sd_yaw_model_output.pdf", 
-#       device = "pdf", width = 7, height = 2.3, dpi = 600)
-
-ggsave(plot = model_output_p, filename = "/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/paper_prep/MS2_laterality/figures/sd_pitch_model_output.pdf", 
+ggsave(plot = model_output_y, filename = "/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/paper_prep/MS2_laterality/figures/sd_yaw_model_ws_output.pdf", 
        device = "pdf", width = 7, height = 2.3, dpi = 600)
-
 
 #-----------------------------------------------------------------------------------------------------------------------
 ## Step 5.2: Does laterality help with better performance when individuals are not experienced? migration performance #####
