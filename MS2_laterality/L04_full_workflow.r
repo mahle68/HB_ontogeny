@@ -778,6 +778,8 @@ data <- circling_data %>%
          laterality_bi = as.factor(laterality_bi),
          individual_local_identifier = as.factor(individual_local_identifier))
 
+saveRDS(data, file = "data_flight_performance_models.rds")
+
 #### run the models one at a time! for pitch and yaw separately
 
 #long-transform instead of z-transform, to make sure response values are positive
@@ -787,10 +789,11 @@ m_inla_p <- inla(log(mean_pitch_sd) ~ 1 + laterality_bi * age_group * wind_speed
                  control.compute = list(cpo = TRUE),
                  control.predictor = list(link = 1, compute = TRUE)) #compute=t means that NA values will be predicted
 
-### the predictions are too large.... consider using a link function.
+### the predictions are too large.... use the gamma family to restrict the predictions to be positive, but not too large
 m_inla_y <- inla(log(mean_yaw_sd) ~ 1 + laterality_bi * age_group * wind_speed_z +
                    f(individual_local_identifier, age_group, model = "iid"),
                  data = data,
+                 #family = "gamma",
                  control.compute = list(cpo = TRUE),
                  control.predictor = list(link = 1, compute = TRUE)) #compute=t means that NA values will be predicted
 
@@ -801,7 +804,7 @@ m_inla_y <- inla(log(mean_yaw_sd) ~ 1 + laterality_bi * age_group * wind_speed_z
 data.frame(CPO = mean(m_inla_p$cpo$cpo, na.rm = T), # 0.49 with log transformation
            Mlik = as.numeric(m_inla_p$mlik[,1][2])) # -17933.39
 
-data.frame(CPO = mean(m_inla_y$cpo$cpo, na.rm = T), # 0.32 #improves when predicting the z-transformed variable
+data.frame(CPO = mean(m_inla_y$cpo$cpo, na.rm = T), # 0.32 #improves when predicting the log-transformed variable
            Mlik = as.numeric(m_inla_y$mlik[,1][2])) # -24833.32
 
 #### pitch_model: coefficients plot -----------------------------------------------------------------------------
@@ -1086,7 +1089,7 @@ preds_y <- data.frame(days_since_tagging = data[na_rows,"days_since_tagging"],
 
 #plot
 #X11(width = 7, height = 2)
-pred_dw <- preds_y %>% 
+(pred_dw <- preds_y %>% 
   ggplot() +
   geom_tile(aes(x = x, y = y, fill = preds)) +
   scale_fill_gradientn(colors = c("#440154FF", "#39568CFF" ,"#20A387FF", "#83e22b", "#FDE725FF"),
@@ -1109,7 +1112,7 @@ pred_dw <- preds_y %>%
         axis.title.x = element_text(margin = margin(t = 5))) + # increase distance between x-axis values and title
   scale_x_continuous(expand = c(0, 0)) + #remove space between the raster and the axis
   scale_y_continuous(expand = c(0, 0))
-
+)
 
 #combine the two plots for the coefficients and the interaction term
 X11(width = 7, height = 2.3)
