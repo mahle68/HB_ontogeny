@@ -23,6 +23,11 @@ library(patchwork)
 
 setwd("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/R_files/")
 
+getmode <- function(v) {
+  uniqv <- unique(v)
+  uniqv[which.max(tabulate(match(v, uniqv)))]
+}
+
 #------------------------------------------------------------
 ## Step 1: calculate euler angles, and laterality index #####
 #------------------------------------------------------------
@@ -1090,28 +1095,28 @@ preds_y <- data.frame(days_since_tagging = data[na_rows,"days_since_tagging"],
 #plot
 #X11(width = 7, height = 2)
 (pred_dw <- preds_y %>% 
-  ggplot() +
-  geom_tile(aes(x = x, y = y, fill = preds)) +
-  scale_fill_gradientn(colors = c("#440154FF", "#39568CFF" ,"#20A387FF", "#83e22b", "#FDE725FF"),
-                       values = c(0, 3.5, 4, 20, 270),
-                       limits = c(0, 5),
-                       na.value = "white",
-                       name = "Yaw \nwobble") +
-  guides(fill = guide_colourbar(title.vjust = .95)) + # the legend title needs to move up a bit
-  labs(x = "Days since tagging", y = "Wind speed") +
-  ggtitle("b") +
-  theme_classic() +
-  theme(plot.margin = margin(0, 0, 0, 0, "pt"),
-        text = element_text(size = 11),
-        legend.key.width=unit(.25,"cm"),
-        legend.key.height=unit(.4,"cm"),
-        legend.text = element_text(size = 8),
-        legend.title = element_text(size = 9),
-        legend.margin = margin(0, 0, 0, 0), # Reduce margin around the legend
-        panel.grid.minor = element_line(color = "white"),
-        axis.title.x = element_text(margin = margin(t = 5))) + # increase distance between x-axis values and title
-  scale_x_continuous(expand = c(0, 0)) + #remove space between the raster and the axis
-  scale_y_continuous(expand = c(0, 0))
+    ggplot() +
+    geom_tile(aes(x = x, y = y, fill = preds)) +
+    scale_fill_gradientn(colors = c("#440154FF", "#39568CFF" ,"#20A387FF", "#83e22b", "#FDE725FF"),
+                         values = c(0, 3.5, 4, 20, 270),
+                         limits = c(0, 5),
+                         na.value = "white",
+                         name = "Yaw \nwobble") +
+    guides(fill = guide_colourbar(title.vjust = .95)) + # the legend title needs to move up a bit
+    labs(x = "Days since tagging", y = "Wind speed") +
+    ggtitle("b") +
+    theme_classic() +
+    theme(plot.margin = margin(0, 0, 0, 0, "pt"),
+          text = element_text(size = 11),
+          legend.key.width=unit(.25,"cm"),
+          legend.key.height=unit(.4,"cm"),
+          legend.text = element_text(size = 8),
+          legend.title = element_text(size = 9),
+          legend.margin = margin(0, 0, 0, 0), # Reduce margin around the legend
+          panel.grid.minor = element_line(color = "white"),
+          axis.title.x = element_text(margin = margin(t = 5))) + # increase distance between x-axis values and title
+    scale_x_continuous(expand = c(0, 0)) + #remove space between the raster and the axis
+    scale_y_continuous(expand = c(0, 0))
 )
 
 #combine the two plots for the coefficients and the interaction term
@@ -1124,6 +1129,8 @@ ggsave(plot = model_output_y, filename = "/home/enourani/ownCloud - enourani@ab.
 #-----------------------------------------------------------------------------------------------------------------------
 ## Step 5.2: Does laterality help with better performance when individuals are not experienced? migration performance #####
 #-----------------------------------------------------------------------------------------------------------------------
+
+### Overall migration performance -----------------------------------------------------------------------------
 #migration performance ~ level of handedness  (one row per individual)
 
 #extract handedness for each individual. to use for coloring
@@ -1156,3 +1163,215 @@ ggplot(migr_info, aes(x = laterality_bi, y = avg_speed_kmh)) +
   theme_classic()
 
 
+### Daily migration performance -----------------------------------------------------------------------------
+
+#extract handedness for each individual
+handedness <- readRDS("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/R_files/circling_w_LI_population.rds") %>% 
+  group_by(individual_local_identifier) %>% 
+  slice(1) %>% 
+  ungroup() %>% 
+  select(individual_local_identifier, laterality_dir) %>% 
+  mutate(individual_local_identifier = as.character(individual_local_identifier))
+
+#open data from Ellen and append handedness
+migr_d <- readRDS("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/data/from_Ellen/daily_mig_metrics_wobble.rds") %>% 
+  full_join(handedness) %>% 
+  drop_na(individual_local_identifier) %>% 
+  rename(Overall_ind_laterality_dir = laterality_dir) %>% 
+  mutate(daily_mean_vert_speed = as.numeric(daily_mean_vert_speed),
+         Overall_ind_laterality_bi = ifelse(Overall_ind_laterality_dir == "ambidextrous", 0, 1) %>% as.factor(), #create a binary variable for handedness vs not)
+         ind_day = paste0(individual_local_identifier, "_", date)) %>% 
+  as.data.frame()
+
+
+#exploratory plots
+migr_long <- migr_d %>%
+  pivot_longer(cols = c(daily_vedba, daily_distance_km, daily_speed_kmh, 
+                        daily_mean_vert_speed, daily_sd_vert_speed, 
+                        daily_sd_turn_angle, daily_mean_turn_angle),
+               names_to = "measure", values_to = "value")
+
+ggplot(migr_long, aes(x = laterality_dir, y = value)) +
+  geom_violin(trim = FALSE, fill = "lightblue", alpha = 0.5) +
+  geom_boxplot(width = 0.1, outlier.shape = NA) +
+  geom_point(position = position_jitter(width = 0.2), alpha = 0.8, size = 0.2) +
+  labs(x = "Laterality", y = "Value") +
+  theme_classic() +
+  facet_wrap(~ measure, scales = "free_y")
+
+ggplot(migr_long, aes(x = laterality_bi, y = value)) +
+  geom_violin(trim = FALSE, fill = "lightblue", alpha = 0.5) +
+  geom_boxplot(width = 0.1, outlier.shape = NA) +
+  geom_point(position = position_jitter(width = 0.2), alpha = 0.8, size = 0.2) +
+  labs(x = "Laterality", y = "Value") +
+  theme_classic() +
+  facet_wrap(~ measure, scales = "free_y")
+
+### Annotate daily migration with handedness and wind -----------------------------------------------------
+
+#open laterality data for circling
+circling_data <- readRDS("thinned_laterality_for_modeling.rds")
+
+#migration days
+migration_days <- migr_d %>% 
+  drop_na(date) %>% 
+  distinct(ind_day) %>% 
+  pull(ind_day)
+
+#group by unique day, calculate max and mean wind speed, calculate the laterality index
+migr_d_l_w <- circling_data %>% 
+  mutate(day = date(start_timestamp),
+         ind_day = paste0(individual_local_identifier, "_", day)) %>% 
+  #subset for days in the migration data 
+  filter(ind_day %in% migration_days) %>% 
+  group_by(individual_local_identifier, day) %>% 
+  summarize(daily_max_wind = max(wind_speed, na.rm = T),
+            daily_mean_wind = mean(wind_speed, na.rm = T),
+            daily_max_cum_yaw = max(abs_cum_yaw, na.rm = T),
+            daily_mean_cum_yaw = mean(abs_cum_yaw, na.rm = T),
+            daily_max_mean_pitch = max(mean_pitch_mean, na.rm = T),
+            daily_mean_mean_pitch = mean(mean_pitch_mean, na.rm = T),
+            #calculate laterality for this day ...
+            daily_sum_bank_left = sum(bank_left),
+            daily_sum_bank_right = sum(bank_right),
+            daily_sum_bank_straight = sum(bank_straight),
+            daily_laterality_index = (daily_sum_bank_right - daily_sum_bank_left)/(daily_sum_bank_right + daily_sum_bank_left),
+            mode_laterality = getmode(laterality_dir),
+            ind_day = head(ind_day, 1), #could have used this for grouping too
+            .groups = "drop") %>% 
+  mutate(daily_laterality_dir = case_when(
+    between(daily_laterality_index, 0.25, 1.0) ~ "right_handed",
+    between(daily_laterality_index, -1.0, -0.25) ~ "left_handed",
+    between(daily_laterality_index, -0.25, 0.25) ~ "ambidextrous",
+    .default = NA)) %>% 
+  #bind to the daily migration data
+  left_join(migr_d %>% drop_na(date)) %>% 
+  as.data.frame() 
+
+saveRDS(migr_d_l_w, file = "data_migration_performance_models.rds")
+
+
+#exploratory plots
+migr_long <- migr_d_l_w %>%
+  pivot_longer(cols = c(daily_vedba, daily_distance_km, daily_speed_kmh, 
+                        daily_mean_vert_speed, daily_sd_vert_speed, 
+                        daily_sd_turn_angle, daily_mean_turn_angle, daily_max_wind, daily_mean_wind),
+               names_to = "measure", values_to = "value")
+
+ggplot(migr_long, aes(x = mode_laterality, y = value)) +
+  geom_violin(trim = FALSE, fill = "lightblue", alpha = 0.5) +
+  geom_boxplot(width = 0.1, outlier.shape = NA) +
+  geom_point(position = position_jitter(width = 0.2), alpha = 0.8, size = 0.2) +
+  labs(x = "Laterality", y = "Value") +
+  theme_classic() +
+  facet_wrap(~ measure, scales = "free_y")
+
+
+### Model migration performance as a function of laterality -----------------------------------------------------
+# 
+# ggplot(migr_d_l_w, aes(x = daily_vedba, y = daily_max_wind, color = mode_laterality)) +
+#   geom_point() + 
+#   geom_smooth(method = "loess")
+
+#z-transform the variables
+data <- migr_d_l_w %>% 
+  #make sure to do all the filtering before scaling the variables!!!!
+  mutate_at(c(3:6, 17:23),
+            list(z = ~scale(.))) %>% 
+  as.data.frame()
+
+#check for autocorrelation
+data %>% 
+  dplyr::select(c(26:36)) %>% 
+  correlate() %>% 
+  corrr::stretch() %>% 
+  filter(abs(r) > 0.5) #correlated: mean and max wind, max cum yaw and mean cum yaw, daily distance an daily speed
+
+#model
+m_inla <- inla(log(daily_vedba) ~ 1 + mode_laterality + daily_max_wind_z +
+                  f(individual_local_identifier, daily_max_wind_z, model = "iid"),
+                data = data,
+                control.compute = list(cpo = TRUE),
+                control.predictor = list(link = 1, compute = TRUE)) #compute=t means that NA values will be predicted
+
+m_inla <- inla(log(daily_distance_km) ~ 1 + mode_laterality + daily_max_wind_z +
+                 f(individual_local_identifier, daily_max_wind_z, model = "iid"),
+               data = data,
+               control.compute = list(cpo = TRUE),
+               control.predictor = list(link = 1, compute = TRUE)) #compute=t means that NA values will be predicted
+
+m_inla <- inla(log(daily_speed_kmh) ~ 1 + mode_laterality + daily_max_wind_z + #distance and speed are correlated
+                 f(individual_local_identifier, daily_max_wind_z, model = "iid"),
+               data = data,
+               control.compute = list(cpo = TRUE),
+               control.predictor = list(link = 1, compute = TRUE)) #compute=t means that NA values will be predicted
+
+m_inla <- inla(log(daily_mean_vert_speed) ~ 1 + mode_laterality + daily_max_wind_z +
+                 f(individual_local_identifier, daily_max_wind_z, model = "iid"),
+               data = data,
+               control.compute = list(cpo = TRUE),
+               control.predictor = list(link = 1, compute = TRUE)) #compute=t means that NA values will be predicted
+
+m_inla <- inla(log(daily_mean_mean_pitch) ~ 1 + mode_laterality + daily_max_wind_z +
+                 f(individual_local_identifier, daily_max_wind_z, model = "iid"),
+               data = data,
+               control.compute = list(cpo = TRUE),
+               control.predictor = list(link = 1, compute = TRUE)) #compute=t means that NA values will be predicted
+
+m_inla <- inla(log(daily_mean_cum_yaw) ~ 1 + mode_laterality + daily_max_wind_z +
+                 f(individual_local_identifier, daily_max_wind_z, model = "iid"),
+               data = data,
+               control.compute = list(cpo = TRUE),
+               control.predictor = list(link = 1, compute = TRUE)) #compute=t means that NA values will be predicted
+
+
+m_inla <- inla(log(daily_mean_turn_angle) ~ 1 + mode_laterality + daily_max_wind_z +
+                 f(individual_local_identifier, daily_max_wind_z, model = "iid"),
+               data = data,
+               control.compute = list(cpo = TRUE),
+               control.predictor = list(link = 1, compute = TRUE)) #compute=t means that NA values will be predicted
+
+
+
+#### coefficients plot -----------------------------------------------------------------------------
+
+# posterior means of coefficients
+graph <- as.data.frame(summary(m_inla)$fixed)
+colnames(graph)[which(colnames(graph)%in%c("0.025quant","0.975quant"))]<-c("Lower","Upper")
+colnames(graph)[which(colnames(graph)%in%c("0.05quant","0.95quant"))]<-c("Lower","Upper")
+colnames(graph)[which(colnames(graph)%in%c("mean"))]<-c("Estimate")
+
+#graph$Model<-i
+graph$Factor <- rownames(graph)
+
+#remove weeks since dispersal
+VarOrder <- rev(unique(graph$Factor))
+VarNames <- VarOrder
+
+graph$Factor <- factor(graph$Factor, levels = VarOrder)
+levels(graph$Factor) <- VarNames
+
+#graph$Factor_n <- as.numeric(graph$Factor)
+
+#plot the coefficients
+X11(width = 7, height = 3)
+(coefs <- ggplot(graph, aes(x = Estimate, y = Factor)) +
+    geom_vline(xintercept = 0, linetype="dashed", 
+               color = "gray75", linewidth = 0.5) +
+    geom_point(color = "#8a2be2ff", size = 2)  +
+    labs(x = "Estimate", y = "") +
+    #scale_y_discrete(labels = rev(c("Intercept", "Average pitch", "Absolute cumulative yaw"))) +
+    #scale_y_discrete(labels = rev(c("Intercept", "Average pitch", "Absolute cumulative yaw",
+    #                                "Wind speed", "Average pitch: Absolute cumulative yaw", "Average pitch: Wind speed",
+    #                                "Average cumulative yaw: Wind speed", "Average pitch : Average cumulative yaw: \nWind speed "))) +
+    geom_linerange(aes(xmin = Lower, xmax = Upper),color = "#8a2be2ff", linewidth = 0.5) +
+    ggtitle("a") +
+    theme_classic() +
+    theme(text = element_text(size = 11),
+          legend.text = element_text(size = 10),
+          legend.title = element_text(size = 9),
+          #axis.text = element_text(color = "gray45"),
+          #panel.grid.major = element_line(color = "gray75"),
+          panel.grid.minor = element_line(color = "white"),
+          axis.title.x = element_text(margin = margin(t = 5))) #increase distance between x-axis values and title
+)
