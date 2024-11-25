@@ -28,39 +28,225 @@ getmode <- function(v) {
   uniqv[which.max(tabulate(match(v, uniqv)))]
 }
 
-#------------------------------------------------------------
-## Step 1: calculate euler angles, and laterality index #####
-#------------------------------------------------------------
+#---------------------------------------------------------------------------------
+## Step 1: Data prep                                                         #####
+#---------------------------------------------------------------------------------
 
-#done in script: L03b_tests_per_burst.r: data summarized for each 8-sec burst
-#life-cycle stage needs to be updated.
+#### ----------------------- use the 8-sec data and calculate handedness for each 8 second burst
+#### FILTER FOR CIRCLING and THIN FOR 5 MIN
 
-laterality_1sec_days <- readRDS("laterality_index_per_8sec_burst_days_since.rds") %>% 
-  filter(n_records >= 8) %>% #remove short bursts
+laterality_circling_thin <- readRDS("laterality_index_per_8sec_burst_days_since.rds") %>% 
+  filter(n_records >= 8) %>% # & #remove short bursts) 
+  group_by(individual_local_identifier) %>% 
+  arrange(start_timestamp, .by_group = TRUE) %>% 
+  
+  #FILTER: thin the data, so that the consecutive bursts are at least 5 min apart
+  mutate(time_lag_sec = if_else(row_number() == 1, 0, 
+                                difftime(start_timestamp, lag(start_timestamp), units = "secs") %>% as.numeric())) %>% 
+  filter(time_lag_sec >= 300) %>% 
+  ungroup() %>% 
   mutate(days_since_tagging = as.numeric(days_since_tagging),
-         individual_local_identifier = as.factor(individual_local_identifier)) %>% 
+         individual_local_identifier = as.factor(individual_local_identifier),
+         individual_local_identifier2 = individual_local_identifier,
+         individual_local_identifier3 = individual_local_identifier) %>% #dublicate individual ID to use for inla random effects specification
   mutate(circling_status = case_when(
     between(cumulative_yaw_8sec, -10, 10) ~ "straight",
     cumulative_yaw_8sec >= 45 | cumulative_yaw_8sec <= -45 ~ "circling",
     .default = "shallow circling"
   )) %>% 
+  mutate(laterality_dir = case_when(
+    between(laterality_bank, 0.25, 1.0) ~ "right_handed",
+    between(laterality_bank, -1.0, -0.25) ~ "left_handed",
+    between(laterality_bank, -0.25, 0.25) ~ "ambidextrous",
+    .default = NA)) %>% 
+  
+  #FILTER: only keep circling flight
+  filter(circling_status == "circling") %>% 
+  mutate(laterality_bi = ifelse(laterality_dir == "ambidextrous", 0, 1), #create a binary variable for handedness vs not
+         abs_cum_yaw = abs(cumulative_yaw_8sec)) %>% 
   as.data.frame()
 
-#check to see how the circling status category worked
-ggplot(laterality_1sec_days, aes(x = cumulative_yaw_8sec, fill = circling_status)) +
-  geom_histogram(bins = 250)
 
-#-------------------------------------------
-## Step 2: filter data for flight only #####
-#-------------------------------------------
-#use pitch.... but pitch can be negative when gliding!!
+#### ----------------------- environmental annotation
 
-#-------------------------------------------------------
-## Step 3.1: Is there laterality? Population-level #####
-#-------------------------------------------------------
+#6940 rows don't have a gps location associated with them.... so, redo GPS-matching and increase the time window to one hour, to match that of the env. data
+#open raw gps data, matched with wind in L04a_env_annotation.r
 
-# #data: angle summaries for each second (from 01b_imu_processing.r)
+gps_ls <- readRDS("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/data/all_gps_apr15_24_wind.rds") %>% 
+  mutate(individual_local_identifier = as.character(individual_local_identifier)) %>% 
+  arrange(individual_local_identifier) %>% 
+  group_by(individual_local_identifier) %>% 
+  group_split() %>% 
+  map(as.data.frame)
 
+#create a list of one element for each individual
+or_ls <- laterality_circling_thin %>% 
+  mutate(individual_local_identifier = as.character(individual_local_identifier)) %>% 
+  arrange(individual_local_identifier) %>% 
+  group_by(individual_local_identifier) %>% 
+  group_split() %>% 
+  map(as.data.frame)
+
+# Define a function to find the closest GPS information and associate it with orientation data
+find_closest_gps <- function(or_data, gps_data, time_tolerance = 60 * 60) {
+  map_df(1:nrow(or_data), function(h) {
+    or_row_time <- or_data[h, "start_timestamp"]
+    gps_sub <- gps_data %>%
+      filter(between(timestamp, or_row_time - time_tolerance, or_row_time + time_tolerance))
+    
+    if (nrow(gps_sub) >= 1) {
+      time_diff <- abs(difftime(gps_sub$timestamp, or_row_time, units = "secs"))
+      min_diff <- which.min(time_diff)
+      or_data[h, c("timestamp_closest_gps_raw", "location_long_closest_gps_raw", "location_lat_closest_gps_raw", "height_above_ellipsoid_closest_gps_raw", "ground_speed_closest_gps_raw", 
+                   "heading_closest_gps",  "u_900", "v_900", "wind_speed")] <- 
+        gps_sub[min_diff, c("timestamp", "location_long", "location_lat", "height_above_ellipsoid", "ground_speed", "heading", "u_900", "v_900", "wind_speed")]
+    } else {
+      or_data[h, c("timestamp_closest_gps_raw", "location_long_closest_gps_raw", "location_lat_closest_gps_raw", "height_above_ellipsoid_closest_gps_raw", "ground_speed_closest_gps_raw", 
+                   "heading_closest_gps", "u_900", "v_900", "wind_speed")] <- NA
+    }
+    return(or_data[h, ])
+  })
+}
+
+#make sure the order of individuals is the same in the two lists
+# Create a list of data frames with or data and associated GPS information
+(b <- Sys.time())
+or_w_gps <- map2(or_ls, gps_ls, ~ find_closest_gps(or_data = .x, gps_data = .y))
+Sys.time() - b # 2.5 mins
+
+#add a column comparing or and gps timestamps. then save one file per individual.
+or_w_gps_df <- lapply(or_w_gps, function(x){
+  x2 <- x %>% 
+    mutate(imu_gps_timediff_sec = if_else(is.na(timestamp_closest_gps_raw), NA, difftime(start_timestamp, timestamp_closest_gps_raw, units = "mins") %>%  as.numeric()))
+  x2
+}) %>% 
+  bind_rows()
+
+sum(is.na(or_w_gps_df$location_long_closest_gps_raw)) #406
+sum(is.na(or_w_gps_df$start_location_long_closest_gps)) #6940
+
+saveRDS(or_w_gps_df, file = "thinned_laterality_w_gps_wind_5min.rds")
+
+#there are still many rows with no assigned gps
+no_gps <- or_w_gps_df %>% 
+  filter(is.na(timestamp_closest_gps_raw))
+
+
+#---------------------------------------------------------------------------------
+## Step 2: Plot laterality for each latitudinal zone                         #####
+#---------------------------------------------------------------------------------
+
+#also add a map of the data. color migration section (use same color in step 3 to shade migration period)
+
+
+
+#---------------------------------------------------------
+## Step 3: Plot laterality over time                 #####
+#---------------------------------------------------------
+
+### DAILY LI
+#data: daily laterality index, filtered for circling only.  annotated with day since tagging and life cycle stage
+
+#open meta-data to calculate day since tagging
+meta_data <- read.csv("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/data/EHB_metadata - Sheet1.csv") %>% 
+  mutate(deployment_dt_utc = as.POSIXct(deployment_dt_utc, tz = "UTC")) %>% 
+  filter(nest_country != "Switzerland")
+
+#daily LI calculated in L02_QUAT_exploration.r (L 192~). already filtered for circling flight. add days since tagging.
+LI_days <- readRDS("laterality_index_per_day.rds") %>%
+  mutate(individual_local_identifier = as.character(individual_local_identifier),
+         date = as.Date(unique_date)) %>% 
+  full_join(meta_data %>% select(ring_ID, deployment_dt_utc), by = c("individual_local_identifier" = "ring_ID")) %>% 
+  rowwise() %>% 
+  mutate(days_since_tagging = floor(difftime(date, deployment_dt_utc, unit = "days")) %>% as.numeric()) %>% 
+  ungroup() %>% 
+  mutate(laterality_dir = case_when(
+    between(laterality_bank, 0.25, 1.0) ~ "right_handed",
+    between(laterality_bank, -1.0, -0.25) ~ "left_handed",
+    between(laterality_bank, -0.25, 0.25) ~ "ambidextrous",
+    .default = NA)) %>% 
+  filter(between(days_since_tagging, 1, 270)) %>% 
+  arrange(individual_local_identifier,unique_date ) %>% 
+  as.data.frame()
+
+
+#Plot 2D densities of different directions of handedness
+
+#re-order laterality direction
+LI_days$laterality_dir <- factor(LI_days$laterality_dir, levels = c("left_handed", "ambidextrous", "right_handed"))
+
+
+ggplot(data = LI_days, aes(x = days_since_tagging, y = laterality_dir)) +
+  stat_bin2d(aes(fill = ..density..), bins = 270/7) + #one bar per week
+  scale_fill_viridis(option = "plasma") +
+  theme_minimal()
+
+
+### messy plots
+#plot. this plot is too messy.... 
+(p_d <- ggplot(data = LI_days, aes(x = days_since_tagging, y = laterality_bank, color = individual_local_identifier)) +
+    geom_point() +
+    geom_smooth(method = "gam", se = F) +
+    ggtitle("laterality index calculated per day per indidviudal") +
+    theme_minimal() +
+    theme(legend.position = "none"))
+
+ggsave(plot = p, filename = "/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/paper_prep/MS2_laterality/exploration_figs/daily_LI_age.jpg", 
+       device = "jpg", width = 9, height = 6)
+
+
+(p_d <- ggplot(data = LI_days, aes(x = days_since_tagging, y = laterality_dir, color = individual_local_identifier)) +
+    geom_point() +
+    geom_line() +
+    ggtitle("laterality index calculated per day per indidviudal") +
+    theme_minimal() +
+    theme(legend.position = "none"))
+
+p_d2 <- ggplot(data = LI_days, aes(x = days_since_tagging, y = laterality_bank)) +
+  geom_point() +
+  ggtitle("laterality index calculated per day per indidviudal") +
+  geom_smooth(method = "loess", se = FALSE) +  # Add curves using LOESS smoothing
+  facet_wrap(~ individual_local_identifier)    # Create separate plots for each category
+
+(p_d3 <- ggplot(data = LI_days, aes(x = days_since_tagging, y = laterality_bank)) +
+  geom_point() +
+    geom_bin2d() +
+  scale_fill_continuous(type = "viridis") +
+  theme_minimal()
+)
+
+
+
+ggsave(plot = p_d2, filename = "/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/paper_prep/MS2_laterality/exploration_figs/daily_LI_age2.jpg", 
+       device = "jpg", width = 9, height = 9)
+
+
+### BANK ANGLES IN EACH DAY
+
+(b <- ggplot(data = or_w_gps_df %>% filter(days_since_tagging < 270), aes(x = days_since_tagging, y = laterality_bank, color = individual_local_identifier)) +
+    geom_point() +
+    geom_smooth(method = "gam", se = F) +
+    ggtitle("laterality index calculated per burst per indidviudal") +
+    theme_minimal() +
+    theme(legend.position = "none"))
+
+(b <- ggplot(data = or_w_gps_df %>% filter(days_since_tagging < 100), aes(x = days_since_tagging, y = cumulative_roll_8sec, color = individual_local_identifier)) +
+    geom_point() +
+    geom_smooth(method = "gam", se = F) +
+    ggtitle("laterality index calculated per burst per indidviudal") +
+    theme_minimal() +
+    theme(legend.position = "none"))
+
+
+ggplot(data = or_w_gps_df %>% filter(days_since_tagging < 270), aes(x = days_since_tagging, y = abs(cumulative_roll_8sec))) +
+  geom_point() +
+  stat_density_2d() +
+  scale_fill_continuous(type = "viridis") +
+  theme_minimal()
+
+
+
+## old stuff..............................................................................................................................
 laterality_1sec_days <- laterality_1sec_days %>% 
   mutate(circling_status = as.factor(circling_status))
 
@@ -219,112 +405,6 @@ ggsave(plot = p_inds, filename = "/home/enourani/ownCloud - enourani@ab.mpg.de@o
 #---------------------------------------------------------------------
 #logistic regression: handedness ~ tightness of circles * age . maybe only for individuals with laterality
 
-#### ----------------------- extract the IDs of individuals with handedness
-handed_IDs <- readRDS("/home/mahle68/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de2/Work/Projects/HB_ontogeny_eobs/R_files/circling_w_LI_population.rds") %>% 
-  filter(laterality_dir != "ambidextrous") %>% 
-  mutate(individual_local_identifier = as.character(individual_local_identifier)) %>% 
-  distinct(individual_local_identifier)
-
-#### ----------------------- read in data on individuals' age at tagging (from Ellen's MSc thesis)
-ages <- read.csv("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/data/from_Ellen/aging_ellen-msc.csv")
-
-#mean(ages$Estimated.age)
-#1] 31.70968
-
-#### ----------------------- use the 8-sec data and calculate handedness for each 8 second burst
-laterality_circling_thin <- readRDS("laterality_index_per_8sec_burst_days_since.rds") %>% 
-  filter(n_records >= 8) %>% # & #remove short bursts) 
-  #full_join(ages, by = "individual_local_identifier") #do this when I have the correct ages from Ellen.
-  group_by(individual_local_identifier) %>% 
-  arrange(start_timestamp, .by_group = TRUE) %>% 
-  #thin the data, so that the consecutive bursts are at least 30 seconds apart
-  mutate(time_lag_sec = if_else(row_number() == 1, 0, 
-                                difftime(start_timestamp, lag(start_timestamp), units = "secs") %>% as.numeric())) %>% 
-  filter(time_lag_sec >= 18) %>% 
-  ungroup() %>% 
-  mutate(days_since_tagging = as.numeric(days_since_tagging),
-         individual_local_identifier = as.factor(individual_local_identifier),
-         individual_local_identifier2 = individual_local_identifier,
-         individual_local_identifier3 = individual_local_identifier) %>% #dublicate individual ID to use for inla random effects specification
-  mutate(circling_status = case_when(
-    between(cumulative_yaw_8sec, -10, 10) ~ "straight",
-    cumulative_yaw_8sec >= 45 | cumulative_yaw_8sec <= -45 ~ "circling",
-    .default = "shallow circling"
-  )) %>% 
-  mutate(laterality_dir = case_when(
-    between(laterality_bank, 0.25, 1.0) ~ "right_handed",
-    between(laterality_bank, -1.0, -0.25) ~ "left_handed",
-    between(laterality_bank, -0.25, 0.25) ~ "ambidextrous",
-    .default = NA)) %>% 
-  filter(circling_status == "circling") %>% # only keep circling flight
-  mutate(laterality_bi = ifelse(laterality_dir == "ambidextrous", 0, 1), #create a binary variable for handedness vs not
-         abs_cum_yaw = abs(cumulative_yaw_8sec)) %>% 
-  as.data.frame()
-
-
-#### ----------------------- environmental annotation
-
-#6940 rows don't have a gps location associated with them.... so, redo GPS-matching and increase the time window to one hour, to match that of the env. data
-#open raw gps data, matched with wind in L04a_env_annotation.r
-
-gps_ls <- readRDS("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/data/all_gps_apr15_24_wind.rds") %>% 
-  mutate(individual_local_identifier = as.character(individual_local_identifier)) %>% 
-  arrange(individual_local_identifier) %>% 
-  group_by(individual_local_identifier) %>% 
-  group_split() %>% 
-  map(as.data.frame)
-
-#create a list of one element for each individual
-or_ls <- laterality_circling_thin %>% 
-  mutate(individual_local_identifier = as.character(individual_local_identifier)) %>% 
-  arrange(individual_local_identifier) %>% 
-  group_by(individual_local_identifier) %>% 
-  group_split() %>% 
-  map(as.data.frame)
-
-# Define a function to find the closest GPS information and associate it with orientation data
-find_closest_gps <- function(or_data, gps_data, time_tolerance = 60 * 60) {
-  map_df(1:nrow(or_data), function(h) {
-    or_row_time <- or_data[h, "start_timestamp"]
-    gps_sub <- gps_data %>%
-      filter(between(timestamp, or_row_time - time_tolerance, or_row_time + time_tolerance))
-    
-    if (nrow(gps_sub) >= 1) {
-      time_diff <- abs(difftime(gps_sub$timestamp, or_row_time, units = "secs"))
-      min_diff <- which.min(time_diff)
-      or_data[h, c("timestamp_closest_gps_raw", "location_long_closest_gps_raw", "location_lat_closest_gps_raw", "height_above_ellipsoid_closest_gps_raw", "ground_speed_closest_gps_raw", 
-                   "heading_closest_gps",  "u_900", "v_900", "wind_speed")] <- 
-        gps_sub[min_diff, c("timestamp", "location_long", "location_lat", "height_above_ellipsoid", "ground_speed", "heading", "u_900", "v_900", "wind_speed")]
-    } else {
-      or_data[h, c("timestamp_closest_gps_raw", "location_long_closest_gps_raw", "location_lat_closest_gps_raw", "height_above_ellipsoid_closest_gps_raw", "ground_speed_closest_gps_raw", 
-                   "heading_closest_gps", "u_900", "v_900", "wind_speed")] <- NA
-    }
-    return(or_data[h, ])
-  })
-}
-
-#make sure the order of individuals is the same in the two lists
-# Create a list of data frames with or data and associated GPS information
-(b <- Sys.time())
-or_w_gps <- map2(or_ls, gps_ls, ~ find_closest_gps(or_data = .x, gps_data = .y))
-Sys.time() - b # 2.5 mins
-
-#add a column comparing or and gps timestamps. then save one file per individual.
-or_w_gps_df <- lapply(or_w_gps, function(x){
-  x2 <- x %>% 
-    mutate(imu_gps_timediff_sec = if_else(is.na(timestamp_closest_gps_raw), NA, difftime(start_timestamp, timestamp_closest_gps_raw, units = "mins") %>%  as.numeric()))
-  x2
-}) %>% 
-  bind_rows()
-
-sum(is.na(or_w_gps_df$location_long_closest_gps_raw)) #406
-sum(is.na(or_w_gps_df$start_location_long_closest_gps)) #6940
-
-saveRDS(or_w_gps_df, file = "thinned_laterality_w_gps_wind.rds")
-
-#there are still many rows with no assigned gps
-no_gps <- or_w_gps_df %>% 
-  filter(is.na(timestamp_closest_gps_raw))
 
 #### ----------------------- filter for day since tagging and z-transform
 
