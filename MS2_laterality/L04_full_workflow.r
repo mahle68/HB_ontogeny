@@ -66,7 +66,7 @@ laterality_1sec_days <- laterality_1sec_days %>%
 
 X11(width = 7, height = 2.8) 
 (p <- ggplot(data = laterality_1sec_days, aes(x = mean_roll_mean, fill = circling_status)) +
-    geom_histogram(binwidth = 1) +
+    geom_histogram(aes(after_stat(density)), binwidth = 1) + #plot the probability
     geom_vline(xintercept = 0, linetype = "dashed", color = "gray30", linewidth = 0.5) +
     scale_x_continuous(breaks =seq(-90, 90, by = 10), 
                        labels = seq(-90, 90, by = 10),
@@ -88,6 +88,51 @@ X11(width = 7, height = 2.8)
 
 ggsave(plot = p, filename = "/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/paper_prep/MS2_laterality/figures/roll_distribution.pdf", 
        device = "pdf", width = 7, height = 2.8, dpi = 600)
+
+
+##QQ plot style
+
+# Extract data for each circling status
+straight <- laterality_1sec_days$mean_roll_mean[laterality_1sec_days$circling_status == "straight"]
+circling <- laterality_1sec_days$mean_roll_mean[laterality_1sec_days$circling_status == "circling"]
+shallow <- laterality_1sec_days$mean_roll_mean[laterality_1sec_days$circling_status == "shallow circling"]
+
+# Calculate ECDFs
+ecdfS <- ecdf(straight)
+ecdfC <- ecdf(circling)
+ecdfSh <- ecdf(shallow)
+
+# Create Q-Q data for circling and shallow circling
+qqC <- data.frame(
+  ecdf_straight = ecdfS(circling),
+  ecdf_circling = ecdfC(circling)
+)
+
+qqSh <- data.frame(
+  ecdf_straight = ecdfS(shallow),
+  ecdf_shallow_circling = ecdfSh(shallow)
+)
+
+# Plot using ggplot2
+X11(width = 7, height = 2.8) 
+qq <- ggplot() +
+  geom_line(data = qqC, aes(x = ecdf_straight, y = ecdf_circling, color = "Circling"), linetype = "dashed", linewidth = 0.5) +
+  geom_line(data = qqSh, aes(x = ecdf_straight, y = ecdf_shallow_circling, color = "Shallow Circling"), linetype = "dashed", linewidth = 0.5) +
+  geom_abline(slope = 1, intercept = 0, linetype = "solid", color = "black", linewidth = 0.5) +
+  scale_color_manual(values = c("Circling" = "#8a2be2ff", "Shallow Circling" = "#238A8DFF")) +
+  labs(x = "ECDF Straight", y = "ECDF Comparison", 
+       #title = "Q-Q Plot of Circling and Shallow Circling vs. Straight",
+       color = "Circularity") +
+  theme_classic() +
+  theme(text = element_text(size = 11),
+        legend.text = element_text(size = 10),
+        legend.title = element_text(size = 9),
+        panel.grid.minor = element_line(color = "white"),
+        axis.title.x = element_text(margin = margin(t = 5)))
+
+ggsave(plot = qq, filename = "/home/mahle68/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/paper_prep/MS2_laterality/figures/roll_distribution_qq.pdf", 
+       device = "pdf", width = 7, height = 2.8, dpi = 600)
+
 
 #-------------------------------------------------------
 ## Step 3.2: Is there laterality? Individual-level #####
@@ -1288,48 +1333,39 @@ data %>%
   filter(abs(r) > 0.5) #correlated: mean and max wind, max cum yaw and mean cum yaw, daily distance an daily speed
 
 #model
-m_inla <- inla(log(daily_vedba) ~ 1 + mode_laterality + daily_max_wind_z +
-                  f(individual_local_identifier, daily_max_wind_z, model = "iid"),
-                data = data,
-                control.compute = list(cpo = TRUE),
-                control.predictor = list(link = 1, compute = TRUE)) #compute=t means that NA values will be predicted
-
-m_inla <- inla(log(daily_distance_km) ~ 1 + mode_laterality + daily_max_wind_z +
-                 f(individual_local_identifier, daily_max_wind_z, model = "iid"),
+m_inla <- inla(daily_vedba ~ 1 + mode_laterality + daily_max_wind +
+                 f(individual_local_identifier, model = "iid"), #put the random effect only on the slope
                data = data,
                control.compute = list(cpo = TRUE),
                control.predictor = list(link = 1, compute = TRUE)) #compute=t means that NA values will be predicted
 
-m_inla <- inla(log(daily_speed_kmh) ~ 1 + mode_laterality + daily_max_wind_z + #distance and speed are correlated
-                 f(individual_local_identifier, daily_max_wind_z, model = "iid"),
+#model distance instead of speed. they are correlated, but the distance model performs better. with no transformation of the predictor
+m_inla <- inla(daily_distance_km ~ 1 + mode_laterality + daily_max_wind + 
+                 f(individual_local_identifier, model = "iid"),
                data = data,
                control.compute = list(cpo = TRUE),
                control.predictor = list(link = 1, compute = TRUE)) #compute=t means that NA values will be predicted
 
+m_inla <- inla(daily_mean_cum_yaw ~ 1 + mode_laterality + daily_max_wind +
+                 f(individual_local_identifier, model = "iid"),
+               data = data,
+               control.compute = list(cpo = TRUE),
+               control.predictor = list(link = 1, compute = TRUE)) #compute=t means that NA values will be predicted
+
+m_inla <- inla(daily_mean_mean_pitch ~ 1 + mode_laterality + daily_max_wind +
+                 f(individual_local_identifier,  model = "iid"),
+               data = data,
+               control.compute = list(cpo = TRUE),
+               control.predictor = list(link = 1, compute = TRUE)) #compute=t means that NA values will be predicted
+
+
+# vertical speed was calculated using the gps.... so think about whether it should be included or not
 m_inla <- inla(log(daily_mean_vert_speed) ~ 1 + mode_laterality + daily_max_wind_z +
                  f(individual_local_identifier, daily_max_wind_z, model = "iid"),
                data = data,
                control.compute = list(cpo = TRUE),
                control.predictor = list(link = 1, compute = TRUE)) #compute=t means that NA values will be predicted
 
-m_inla <- inla(log(daily_mean_mean_pitch) ~ 1 + mode_laterality + daily_max_wind_z +
-                 f(individual_local_identifier, daily_max_wind_z, model = "iid"),
-               data = data,
-               control.compute = list(cpo = TRUE),
-               control.predictor = list(link = 1, compute = TRUE)) #compute=t means that NA values will be predicted
-
-m_inla <- inla(log(daily_mean_cum_yaw) ~ 1 + mode_laterality + daily_max_wind_z +
-                 f(individual_local_identifier, daily_max_wind_z, model = "iid"),
-               data = data,
-               control.compute = list(cpo = TRUE),
-               control.predictor = list(link = 1, compute = TRUE)) #compute=t means that NA values will be predicted
-
-
-m_inla <- inla(log(daily_mean_turn_angle) ~ 1 + mode_laterality + daily_max_wind_z +
-                 f(individual_local_identifier, daily_max_wind_z, model = "iid"),
-               data = data,
-               control.compute = list(cpo = TRUE),
-               control.predictor = list(link = 1, compute = TRUE)) #compute=t means that NA values will be predicted
 
 
 
@@ -1354,20 +1390,22 @@ levels(graph$Factor) <- VarNames
 #graph$Factor_n <- as.numeric(graph$Factor)
 
 #plot the coefficients
-X11(width = 7, height = 3)
-(coefs <- ggplot(graph, aes(x = Estimate, y = Factor)) +
+X11(width = 4.5, height = 1.6)
+(coefs_y <- ggplot(graph, aes(x = Estimate, y = Factor)) +
     geom_vline(xintercept = 0, linetype="dashed", 
                color = "gray75", linewidth = 0.5) +
     geom_point(color = "#8a2be2ff", size = 2)  +
     labs(x = "Estimate", y = "") +
-    #scale_y_discrete(labels = rev(c("Intercept", "Average pitch", "Absolute cumulative yaw"))) +
-    #scale_y_discrete(labels = rev(c("Intercept", "Average pitch", "Absolute cumulative yaw",
-    #                                "Wind speed", "Average pitch: Absolute cumulative yaw", "Average pitch: Wind speed",
-    #                                "Average cumulative yaw: Wind speed", "Average pitch : Average cumulative yaw: \nWind speed "))) +
+    scale_y_discrete(labels = rev(c("Intercept", "Laterality left-handed", "Laterality rigt-handed",
+                                    "Maximum wind speed"))) +
     geom_linerange(aes(xmin = Lower, xmax = Upper),color = "#8a2be2ff", linewidth = 0.5) +
-    ggtitle("a") +
+    #ggtitle("Daily distance (km)") +
+    #ggtitle("VeDBA (g)") +
+    #ggtitle("Average pitch (degrees)") +
+    ggtitle("Average cumulative yaw (degrees)") +
     theme_classic() +
-    theme(text = element_text(size = 11),
+    theme(plot.margin = margin(0, 0, 10, 0, "pt"),
+          text = element_text(size = 9),
           legend.text = element_text(size = 10),
           legend.title = element_text(size = 9),
           #axis.text = element_text(color = "gray45"),
@@ -1375,3 +1413,11 @@ X11(width = 7, height = 3)
           panel.grid.minor = element_line(color = "white"),
           axis.title.x = element_text(margin = margin(t = 5))) #increase distance between x-axis values and title
 )
+
+#put all plots together
+X11(width = 4.5, height = 6.5)
+combined <- coefs_v + coefs_d + coefs_y + coefs_p 
+(p <- combined + plot_layout(axis_titles = "collect", nrow = 4))
+
+ggsave(plot = p, filename = "/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/paper_prep/MS2_laterality/figures/migration_model_coeffs.pdf", 
+       device = "pdf", width = 4.5, height = 6.5, dpi = 600)
