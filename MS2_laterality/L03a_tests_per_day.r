@@ -18,14 +18,38 @@ library(lme4)
 #this file contains laterality index calculated per day. in the wintering ground and some points pre-migration, there was only one IMU recorded per day (n_bursts_in_day). filter as necessary
 laterality_8sec <- readRDS("laterality_index_per_day.rds")
 
+
 #use Ellen's life cycle stage estimations
-life_cycle <- read.csv("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/data/EHB_metadata_mig_dates_Fin22.csv") %>% 
+life_cycle <- readRDS("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/data/from_Ellen/HB_dates_Fin_all_M2.rds") %>% 
   mutate_at(c("migration_start", "migration_end"), as.Date) %>% 
-  filter(nest_country == "Finland")
+  rename("individual_local_identifier" = "ind_id")
+
+#identify the last day of data collection for individuals that have NA for end of migration (they died)
+no_migr_end <- life_cycle %>% filter(is.na(migration_end)) %>% pull(ind_id)
+
+missing_migration_ends <- laterality_8sec %>% 
+  filter(individual_local_identifier %in% no_migr_end) %>% 
+  mutate(unique_date = as.Date(unique_date)) %>% 
+  group_by(individual_local_identifier) %>% 
+  #assing end of data collection as migration end
+  summarize(migration_end = max(unique_date)) %>% 
+  ungroup() %>% 
+  #add the other columns of life_cycle, so I can use rows-update in the next step to fill in the NAs
+  left_join(life_cycle %>% select(-migration_end), by = "individual_local_identifier")
+
+#update life_cycle to deal with missing dates
+life_cycle <- life_cycle %>% 
+  rows_update(missing_migration_ends, by = "individual_local_identifier") %>% 
+  #one individual is also missing the start of migration, assign mid september
+  mutate(migration_start = ifelse(is.na(migration_start), as.Date("2023-09-15"), migration_start) %>% as.Date())
+
+saveRDS(life_cycle, file = "updated_life_cycle_nov24.rds")
+
 
 laterality_8sec_LS <- laterality_8sec %>%
   mutate(unique_date = as.Date(unique_date)) %>% 
-  full_join(life_cycle %>% select(ring_ID, migration_start, migration_end), by = c("individual_local_identifier" = "ring_ID")) %>% 
+  full_join(life_cycle %>% select(individual_local_identifier, migration_start, migration_end), by = "individual_local_identifier") %>% 
+  group_by(individual_local_identifier) %>% 
   rowwise() %>% 
   mutate(life_stage = case_when(
     between(unique_date, migration_start, migration_end) ~ "migration",
@@ -33,15 +57,11 @@ laterality_8sec_LS <- laterality_8sec %>%
     unique_date > migration_end ~ "wintering",
     TRUE ~ NA_character_
   )) %>% 
-  ungroup() %>% 
-  mutate(life_stage = case_when(
-    is.na(life_stage) & unique_date < as.Date("2023-09-15") ~ "post-fledging",
-    is.na(life_stage) & unique_date > as.Date("2023-10-20") ~ "migration",
-    is.na(life_stage) & between(unique_date, as.Date("2023-09-15"), as.Date("2023-10-20")) ~ "wintering",
-    TRUE ~ life_stage
-  )) %>%
+  ungroup() %>%
   filter(n_bursts_in_day >= 3) %>% #filter for number of IMU bursts per day.  
   as.data.frame()
+
+saveRDS(laterality_8sec_LS, file = "laterality_daily_w_LS.rds")
 
 #-------------------------------------------------------------------------------------
 # STEP2: some plotting
@@ -68,47 +88,3 @@ ggplot(laterality_8sec_LS, aes(x = laterality_heading, y = individual_local_iden
 #there is a pattern of higher laterality before migration, but the sample sizes are too small. So, calculate laterality for each 8-second burst and look at the distributions there. Continued in L03b_tests_per_burst.r
 
 
-
-########old stuff
-X11(width = 12, height = 12)
-ggplot(data = pre_winter, aes(x = unique_date, y = laterality_bank)) +
-  geom_point() +
-  geom_smooth( method = "gam") +
-  facet_wrap(vars(individual_local_identifier))
-
-ggplot(pre_winter, aes(x = unique_date, y = laterality_bank, group = individual_local_identifier)) +
-  geom_point(alpha = 0.5) +  # Add points with some transparency
-  geom_smooth(method = "loess", se = FALSE) +  # Add smooth curves for each individual
-  labs(title = "Daily Laterality Index",
-       x = "Date",
-       y = "Laterality Index") +
-  theme_minimal() +
-  theme(legend.position = "right") +
-  scale_color_viridis_d() 
-
-#look at a linear model
-library(lme4)
-
-# Assuming `individual` is a factor indicating individual subjects
-model <- lmer(laterality_bank ~ (1|individual_local_identifier), data = pre_winter)
-model <- lmer(laterality_bank ~ unique_date + (1|individual_local_identifier), data = pre_winter)
-summary(model)
-
-library(rptR)
-
-rpt_model <- rpt(laterality_bank ~ (1|individual_local_identifier), grname = "individual_local_identifier", data = pre_winter, datatype = "Gaussian")
-summary(rpt_model)
-
-
-####gam
-
-pre_winter <- pre_winter %>% 
-  mutate(unique_date = as.Date(unique_date),
-         individual_local_identifier = as.factor(individual_local_identifier))
-
-gam_model <- gam(laterality_bank ~ s(unique_date, by = individual_local_identifier, bs = "fs", k = 10) + individual_local_identifier, 
-                 data = pre_winter, method = "REML")
-
-
-
- 
