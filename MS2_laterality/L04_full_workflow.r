@@ -20,6 +20,7 @@ library(performance)
 library(corrr)
 library(gridExtra)
 library(patchwork)
+library(rptR)
 
 setwd("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/R_files/")
 
@@ -33,16 +34,19 @@ getmode <- function(v) {
 #---------------------------------------------------------------------------------
 
 #### ----------------------- use the 8-sec data and calculate handedness for each 8 second burst
-#### FILTER FOR CIRCLING and THIN FOR 5 MIN
+#### filter for circling flight, thin for bursts 5 min apart, remove pre-fledging
 
 laterality_circling_thin <- readRDS("laterality_index_per_8sec_burst_days_since.rds") %>% 
-  filter(n_records >= 8) %>% # & #remove short bursts) 
+  
+  #FILTER: remove short bursts and remove the first week of tagging (pre-fledging)
+  filter(n_records >= 8 & days_since_tagging > 8) %>% 
   group_by(individual_local_identifier) %>% 
   arrange(start_timestamp, .by_group = TRUE) %>% 
   
-  #FILTER: thin the data, so that the consecutive bursts are at least 5 min apart
   mutate(time_lag_sec = if_else(row_number() == 1, 0, 
                                 difftime(start_timestamp, lag(start_timestamp), units = "secs") %>% as.numeric())) %>% 
+  
+  #FILTER: thin the data, so that the consecutive bursts are at least 5 min apart
   filter(time_lag_sec >= 300) %>% 
   ungroup() %>% 
   mutate(days_since_tagging = as.numeric(days_since_tagging),
@@ -132,6 +136,110 @@ no_gps <- or_w_gps_df %>%
   filter(is.na(timestamp_closest_gps_raw))
 
 
+#### ----------------------- add life-cycle stage
+#life-cycle stages from L03a_tests_per_day.r
+life_cycle <- readRDS("updated_life_cycle_nov24.rds")
+
+or_w_gps_df <- readRDS("thinned_laterality_w_gps_wind_5min.rds")
+
+or_w_gps_df_LS <- or_w_gps_df %>% 
+  mutate(unique_date = as.Date(start_timestamp)) %>% 
+  full_join(life_cycle %>% select(individual_local_identifier, migration_start, migration_end, first_exploration), by = "individual_local_identifier") %>% 
+  group_by(individual_local_identifier) %>% 
+  rowwise() %>% 
+  mutate(life_stage = case_when(
+    between(unique_date, migration_start, migration_end) ~ "migration",
+    between(unique_date, first_exploration, migration_start) ~ "post-fledging",
+    unique_date < first_exploration ~ "pre-fledging",
+    unique_date > migration_end ~ "wintering",
+    TRUE ~ NA_character_
+  )) %>% 
+  ungroup() %>% 
+  as.data.frame()
+
+saveRDS(or_w_gps_df_LS, file = "thinned_laterality_w_gps_wind_5min_LS.rds")
+
+#### ----------------------- average start and end of migration
+
+population_migr_period <- or_w_gps_df_LS %>% 
+  filter(life_stage == "migration") %>% 
+  group_by(individual_local_identifier) %>% 
+  arrange(start_timestamp, .by_group = T) %>% 
+  summarize(migration_start = min(days_since_tagging),
+            migration_end = max(days_since_tagging)) %>% 
+  ungroup() %>% 
+  summarize(avg_migration_start = mean(migration_start) %>% round(), 
+            avg_migration_end = mean(migration_end) %>% round())
+
+#avg_migration_start 38 
+#avg_migration_end 69
+
+#---------------------------------------------------------------------------------
+## Step 2: Repeatability over time                                           #####
+#---------------------------------------------------------------------------------
+
+post_fledging <- or_w_gps_df_LS %>% 
+  filter(life_stage != "pre-fledging")
+
+lapply(split(post_fledging, post_fledging$individual_local_identifier), function(ind){
+  
+  #repeatability for the whole dataset
+  rpt(laterality_bank ~ (1 | days_since_tagging), grname = "days_since_tagging", data = ind, 
+      datatype = "Gaussian", nboot = 0, npermut = 0) #
+  
+})
+
+rpt(laterality_bank ~ (1 | individual_local_identifier), grname = "individual_local_identifier", data = post_fledging, datatype = "Gaussian", 
+    nboot = 0, npermut = 0) #no repeatability
+
+rpt(laterality_bi ~ (1 | life_stage), grname = "life_stage", data = or_w_gps_df_LS, datatype = "Binary", 
+    nboot = 0, npermut = 0) #no repeatability
+
+rpt(cumulative_roll_8sec ~ (1 | individual_local_identifier) + (1 | life_stage), grname = c("individual_local_identifier","life_stage"),
+    data = or_w_gps_df_LS,
+    datatype = "Gaussian", 
+    nboot = 0, npermut = 0) #no repeatability
+
+rpt(laterality_bi ~ (1 | individual_local_identifier) + (1 | life_stage), grname = c("individual_local_identifier","life_stage"),
+    data = or_w_gps_df_LS,
+    datatype = "Binary", 
+    nboot = 0, npermut = 0) #no repeatability
+
+#only for one individual
+rpt(laterality_bi ~  (1 | days_since_tagging), grname = "days_since_tagging",
+    data = or_w_gps_df_LS %>% filter(individual_local_identifier == "D163_696" & life_stage == "wintering"),
+    datatype = "Binary", 
+    nboot = 0, npermut = 0) #no repeatability
+
+#only pre-migration
+
+rpt(laterality_bi ~ (1 | days_since_tagging), grname = "days_since_tagging", data = or_w_gps_df_LS %>% filter(life_stage == "post-fledging"), 
+    datatype = "Binary", nboot = 0, npermut = 0)
+
+rpt(laterality_bi ~ (1 | days_since_tagging), grname = "days_since_tagging", data = or_w_gps_df_LS %>% filter(life_stage == "migration"), 
+    datatype = "Binary", nboot = 0, npermut = 0)
+
+rpt(laterality_bi ~ (1 | days_since_tagging), grname = "days_since_tagging", data = or_w_gps_df_LS %>% filter(life_stage == "wintering"), 
+    datatype = "Binary", nboot = 0, npermut = 0)
+
+
+#try cohen's Kappa
+library(irr)
+
+# Function to calculate Cohen's Kappa for each individual
+calculate_kappa <- function(individual_data) {
+  # Create a table of laterality assignments
+  laterality_table <- table(individual_data$days_since_tagging, individual_data$laterality_dir)
+  
+  # Calculate Cohen's Kappa
+  kappa_result <- kappa2(laterality_table)
+  
+  return(kappa_result$value)
+}
+
+# Apply the function to each individual
+kappa_values <- by(data, data$Individual, calculate_kappa)
+
 #---------------------------------------------------------------------------------
 ## Step 2: Plot laterality for each latitudinal zone                         #####
 #---------------------------------------------------------------------------------
@@ -176,73 +284,38 @@ LI_days <- readRDS("laterality_index_per_day.rds") %>%
 LI_days$laterality_dir <- factor(LI_days$laterality_dir, levels = c("left_handed", "ambidextrous", "right_handed"))
 
 
-ggplot(data = LI_days, aes(x = days_since_tagging, y = laterality_dir)) +
+X11(width = 7, height = 2.5)
+d_d <- ggplot(data = LI_days, aes(x = days_since_tagging, y = laterality_dir)) +
   stat_bin2d(aes(fill = ..density..), bins = 270/7) + #one bar per week
   scale_fill_viridis(option = "plasma") +
-  theme_minimal()
+  labs(x = "Days since tagging", y = "") +
+  scale_y_discrete(labels = c("Left-handed", "Ambidextrous", "Right-handed")) +
+  #start and end of migration on average
+  geom_vline(xintercept = c(population_migr_period$avg_migration_start,population_migr_period$avg_migration_end),
+             linetype = "dashed",  color = "white", linewidth = 0.5, show.legend = TRUE) +
+  ggtitle("Density of handedness categories based on laterality index calculated for \neach day for each individual. \nWhite dashed lines show the migration period.") +
+  theme_minimal() +
+  theme(text = element_text(size = 9))
 
-
-### messy plots
-#plot. this plot is too messy.... 
-(p_d <- ggplot(data = LI_days, aes(x = days_since_tagging, y = laterality_bank, color = individual_local_identifier)) +
-    geom_point() +
-    geom_smooth(method = "gam", se = F) +
-    ggtitle("laterality index calculated per day per indidviudal") +
-    theme_minimal() +
-    theme(legend.position = "none"))
-
-ggsave(plot = p, filename = "/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/paper_prep/MS2_laterality/exploration_figs/daily_LI_age.jpg", 
-       device = "jpg", width = 9, height = 6)
-
-
-(p_d <- ggplot(data = LI_days, aes(x = days_since_tagging, y = laterality_dir, color = individual_local_identifier)) +
-    geom_point() +
-    geom_line() +
-    ggtitle("laterality index calculated per day per indidviudal") +
-    theme_minimal() +
-    theme(legend.position = "none"))
-
-p_d2 <- ggplot(data = LI_days, aes(x = days_since_tagging, y = laterality_bank)) +
-  geom_point() +
-  ggtitle("laterality index calculated per day per indidviudal") +
-  geom_smooth(method = "loess", se = FALSE) +  # Add curves using LOESS smoothing
-  facet_wrap(~ individual_local_identifier)    # Create separate plots for each category
-
-(p_d3 <- ggplot(data = LI_days, aes(x = days_since_tagging, y = laterality_bank)) +
-  geom_point() +
-    geom_bin2d() +
-  scale_fill_continuous(type = "viridis") +
-  theme_minimal()
-)
-
-
-
-ggsave(plot = p_d2, filename = "/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/paper_prep/MS2_laterality/exploration_figs/daily_LI_age2.jpg", 
-       device = "jpg", width = 9, height = 9)
-
+ggsave(plot = d_d, filename = "/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/paper_prep/MS2_laterality/exploration_figs/daily_handedness_2d.jpg", 
+       device = "jpg", width = 7, height = 2.5)
 
 ### BANK ANGLES IN EACH DAY
 
-(b <- ggplot(data = or_w_gps_df %>% filter(days_since_tagging < 270), aes(x = days_since_tagging, y = laterality_bank, color = individual_local_identifier)) +
-    geom_point() +
-    geom_smooth(method = "gam", se = F) +
-    ggtitle("laterality index calculated per burst per indidviudal") +
-    theme_minimal() +
-    theme(legend.position = "none"))
+#this one is weird
+b_d <- ggplot(data = or_w_gps_df %>% filter(days_since_tagging <= 270), aes(x = days_since_tagging, y = laterality_dir)) +
+  stat_bin2d(aes(fill = ..density..), bins = 270/7) + #one bar per week
+  scale_fill_viridis(option = "plasma") +
+  labs(x = "Days since tagging", y = "") +
+  scale_y_discrete(labels = c("Left-handed", "Ambidextrous", "Right-handed")) +
+  #start and end of migration on average
+  geom_vline(xintercept = c(population_migr_period$avg_migration_start,population_migr_period$avg_migration_end),
+             linetype = "dashed",  color = "white", linewidth = 0.5, show.legend = TRUE) +
+  theme_minimal() +
+  theme(text = element_text(size = 11))
 
-(b <- ggplot(data = or_w_gps_df %>% filter(days_since_tagging < 100), aes(x = days_since_tagging, y = cumulative_roll_8sec, color = individual_local_identifier)) +
-    geom_point() +
-    geom_smooth(method = "gam", se = F) +
-    ggtitle("laterality index calculated per burst per indidviudal") +
-    theme_minimal() +
-    theme(legend.position = "none"))
-
-
-ggplot(data = or_w_gps_df %>% filter(days_since_tagging < 270), aes(x = days_since_tagging, y = abs(cumulative_roll_8sec))) +
-  geom_point() +
-  stat_density_2d() +
-  scale_fill_continuous(type = "viridis") +
-  theme_minimal()
+ggsave(plot = b_d, filename = "/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/paper_prep/MS2_laterality/exploration_figs/daily_handedness_bursts_2d.jpg", 
+       device = "jpg", width = 7, height = 2.5)
 
 
 
