@@ -205,6 +205,7 @@ circling_only <- laterality_per_burst %>%
   ungroup() %>% 
   as.data.frame()
 
+circling_data <
 
 # Reorder the factor levels of individual_local_identifier based on the previous plots
 circling_only$individual_local_identifier <- factor(circling_only$individual_local_identifier, 
