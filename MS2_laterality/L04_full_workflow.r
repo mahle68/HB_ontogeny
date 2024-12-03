@@ -35,20 +35,17 @@ getmode <- function(v) {
 #---------------------------------------------------------------------------------
 
 #### ----------------------- use the 8-sec data and calculate handedness for each 8 second burst
-#### filter for circling flight, thin for bursts 5 min apart, remove pre-fledging
+#### Prepare the data first, add filtering steps afterwards
 
-laterality_circling_thin <- readRDS("laterality_index_per_8sec_burst_days_since.rds") %>% 
-  
+laterality_circling <- readRDS("laterality_index_per_8sec_burst_days_since.rds") %>% 
   #FILTER: remove short bursts 
-  filter(n_records >= 8 & days_since_tagging > 8) %>% 
+  filter(n_records >= 6) %>% 
   group_by(individual_local_identifier) %>% 
-  arrange(start_timestamp, .by_group = TRUE) %>% 
-  mutate(time_lag_sec = if_else(row_number() == 1, 0, 
-                                difftime(start_timestamp, lag(start_timestamp), units = "secs") %>% as.numeric())) %>% 
-  
-  #FILTER: thin the data, so that the consecutive bursts are at least 4 min apart.. for consistency
-  filter(time_lag_sec >= 240) %>% 
-  ungroup() %>% 
+  #arrange(start_timestamp, .by_group = TRUE) %>% 
+  #calculate the time difference between consecutive bursts  ### DO THIS AFTER FITLERING FOR CIRCLING
+  #mutate(time_lag_sec = if_else(row_number() == 1, 0, 
+  #                              difftime(start_timestamp, lag(start_timestamp), units = "secs") %>% as.numeric())) %>% 
+  #ungroup() %>% 
   mutate(days_since_tagging = as.numeric(days_since_tagging),
          individual_local_identifier = as.factor(individual_local_identifier),
          individual_local_identifier2 = individual_local_identifier,
@@ -63,20 +60,16 @@ laterality_circling_thin <- readRDS("laterality_index_per_8sec_burst_days_since.
     between(laterality_bank, -1.0, -0.25) ~ "left_handed",
     between(laterality_bank, -0.25, 0.25) ~ "ambidextrous",
     .default = NA)) %>% 
-  
-  #FILTER: only keep circling flight
-  filter(circling_status == "circling") %>% 
   mutate(laterality_bi = ifelse(laterality_dir == "ambidextrous", 0, 1), #create a binary variable for handedness vs not
          abs_cum_yaw = abs(cumulative_yaw_8sec)) %>% 
   as.data.frame()
-
 
 #### ----------------------- environmental annotation
 
 #6940 rows don't have a gps location associated with them.... so, redo GPS-matching and increase the time window to one hour, to match that of the env. data
 #open raw gps data, matched with wind in L04a_env_annotation.r
 
-gps_ls <- readRDS("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/data/all_gps_apr15_24_wind.rds") %>% 
+gps_ls <- readRDS("/home/mahle68/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/data/all_gps_apr15_24_wind.rds") %>% 
   mutate(individual_local_identifier = as.character(individual_local_identifier)) %>% 
   arrange(individual_local_identifier) %>% 
   group_by(individual_local_identifier) %>% 
@@ -129,7 +122,6 @@ or_w_gps_df <- lapply(or_w_gps, function(x){
 sum(is.na(or_w_gps_df$location_long_closest_gps_raw)) #406
 sum(is.na(or_w_gps_df$start_location_long_closest_gps)) #6940
 
-saveRDS(or_w_gps_df, file = "thinned_laterality_w_gps_wind_4min.rds")
 
 #there are still many rows with no assigned gps
 no_gps <- or_w_gps_df %>% 
@@ -139,8 +131,6 @@ no_gps <- or_w_gps_df %>%
 #### ----------------------- add life-cycle stage
 #life-cycle stages from L03a_tests_per_day.r
 life_cycle <- readRDS("updated_life_cycle_nov24.rds")
-
-or_w_gps_df <- readRDS("thinned_laterality_w_gps_wind_4min.rds")
 
 or_w_gps_df_LS <- or_w_gps_df %>% 
   mutate(unique_date = as.Date(start_timestamp)) %>% 
@@ -157,50 +147,75 @@ or_w_gps_df_LS <- or_w_gps_df %>%
   ungroup() %>% 
   as.data.frame()
 
-saveRDS(or_w_gps_df_LS, file = "thinned_laterality_w_gps_wind_4min_LS.rds")
+saveRDS(or_w_gps_df_LS, file = "laterality_w_gps_wind_LS_no_filter.rds")
 
 #FILTER: remove pre-fledging
-or_w_gps_df_LS_pf <- or_w_gps_df_LS %>% 
-  filter(life_stage != "pre-fledging")
+#or_w_gps_df_LS_pf <- or_w_gps_df_LS %>% 
+#  filter(life_stage != "pre-fledging")
 
-saveRDS(or_w_gps_df_LS_pf, file = "thinned_laterality_w_gps_wind_4min_LS_PF.rds") #only post-fledging data
+#saveRDS(or_w_gps_df_LS_pf, file = "thinned_laterality_w_gps_wind_4min_LS_PF.rds") #only post-fledging data
+
+#---------------------------------------------------------------------------------
+## Step 2: Data filtering                                                    #####
+#---------------------------------------------------------------------------------
+
+#open prepared data that has not been filtered yet.
+#levels of filtering:
+#1) only keep circling flight (MUST do before LI calculations)
+#2) thin the data, so that the consecutive bursts are at least 2 min apart.. (MUST do before LI calculations)
+#only keep data after fledging
+#only keep first 300 days
+
+
+or_w_gps_flt <- readRDS("laterality_w_gps_wind_LS_no_filter.rds") %>% 
+  #FILTER: remove non-circling bursts
+  filter(circling_status == "circling") %>% 
+  #calculate time lag between remaining bursts
+  group_by(individual_local_identifier) %>% 
+  arrange(start_timestamp, .by_group = TRUE) %>% 
+  mutate(time_lag_sec = if_else(row_number() == 1, 0, 
+                                difftime(start_timestamp, lag(start_timestamp), units = "secs") %>% as.numeric())) %>% 
+  ungroup() %>% 
+  #FILTER: thin the data, so that the consecutive bursts are at least 2 min apart.. for consistency
+  filter(time_lag_sec >= 120) %>% 
+  #FILTER: filter out pre-fledging
+  filter(life_stage != "pre-fledging") %>% 
+  as.data.frame()
 
 
 #-----------------------------------------------------------------------
-## Step 2: Calculate laterality index for days, weeks, life stages #####
+## Step 2: Calculate laterality index for days, (weeks,) and life stages #####
 #-----------------------------------------------------------------------
 
-filtered_w_LI <- or_w_gps_df_LS_pf %>% 
+filtered_w_LI <- or_w_gps_flt %>% 
   group_by(individual_local_identifier) %>% 
   arrange(days_since_tagging, .by_group = T) %>% 
-  mutate(weeks_since_tagging = ceiling(days_since_tagging/7),  #not all indiviudals have a week 1. 
+  mutate(weeks_since_tagging = ceiling(days_since_tagging/7),  #not all individuals have a week 1. 
          bank_direction = ifelse(mean_roll_mean < 0, "left",
                                  ifelse(mean_roll_mean > 0, "right", "straight")),
          heading_direction = ifelse(cumulative_yaw_8sec < 0, "left",
                                     ifelse(cumulative_yaw_8sec > 0, "right", "straight"))) %>% 
-  #laterality index for each day
+  ungroup() %>% 
+  #------------------laterality index for each day
   group_by(individual_local_identifier, days_since_tagging) %>% 
   mutate(total_n = n(),
          bank_left = sum(bank_direction == "left"),
          bank_right = sum(bank_direction == "right"),
          bank_straight = sum(bank_direction == "straight"),
-         laterality_bank_day = (bank_right - bank_left)/(bank_right + bank_left + bank_straight),
-         .groups = 'drop') %>% 
+         laterality_bank_day = (bank_right - bank_left)/(bank_right + bank_left + bank_straight)) %>%
   mutate(laterality_dir_day = case_when(
     between(laterality_bank_day, 0.25, 1.0) ~ "right_handed",
     between(laterality_bank_day, -1.0, -0.25) ~ "left_handed",
-    between(laterality_bank_day, -0.25, 0.25) ~ "ambidextrous",
-    .default = NA)) %>% 
+    between(laterality_bank_day, -0.25, 0.25) ~ "ambidextrous")) %>% 
   ungroup() %>% 
   select(-c(total_n, bank_left, bank_right, bank_straight)) %>% 
-  #laterality index for life stage
+  #------------------laterality index for life stage
   group_by(individual_local_identifier, life_stage) %>% 
   mutate(total_n = n(),
          bank_left = sum(bank_direction == "left"),
          bank_right = sum(bank_direction == "right"),
          bank_straight = sum(bank_direction == "straight"),
-         laterality_bank_stage = (bank_right - bank_left)/(bank_right + bank_left + bank_straight),
-         .groups = 'drop') %>% 
+         laterality_bank_stage = (bank_right - bank_left)/(bank_right + bank_left + bank_straight)) %>% 
   mutate(laterality_dir_stage = case_when(
     between(laterality_bank_stage, 0.25, 1.0) ~ "right_handed",
     between(laterality_bank_stage, -1.0, -0.25) ~ "left_handed",
@@ -210,13 +225,84 @@ filtered_w_LI <- or_w_gps_df_LS_pf %>%
   select(-c(total_n, bank_left, bank_right, bank_straight)) %>% 
   as.data.frame()
 
+#re-order laterality direction
+filtered_w_LI$laterality_dir_day <- factor(filtered_w_LI$laterality_dir_day, levels = c("left_handed", "ambidextrous", "right_handed"))
+filtered_w_LI$laterality_dir_stage <- factor(filtered_w_LI$laterality_dir_stage, levels = c("left_handed", "ambidextrous", "right_handed"))
 
-saveRDS(filtered_w_LI, file = "thinned_laterality_w_gps_wind_4min_LS_PF_LI.rds")
+saveRDS(filtered_w_LI, file = "thinned_laterality_w_gps_wind_all_filters.rds")
 
 #-----------------------------------------------------------------------
 ## Step 3: How does laterality vary with latitude                  #####
 #-----------------------------------------------------------------------
 
+#### ----------------------- average start and end of migration
+population_migr_period <- filtered_w_LI %>% 
+  filter(life_stage == "migration") %>% 
+  group_by(individual_local_identifier) %>% 
+  arrange(start_timestamp, .by_group = T) %>% 
+  summarize(migration_start = min(days_since_tagging),
+            migration_end = max(days_since_tagging)) %>% 
+  ungroup() %>% 
+  summarize(avg_migration_start = mean(migration_start) %>% round(), 
+            avg_migration_end = mean(migration_end) %>% round())
+
+#avg_migration_start 38 
+#avg_migration_end 69
+
+#### ----------------------- plots for latitude
+#bin latitude into zones
+filtered_w_LI_LZ <- filtered_w_LI %>%
+  mutate(lat_zone = cut(location_lat_closest_gps_raw, breaks = seq(-30, 70, by = 10), include.lowest = TRUE))
+
+#plot distribution of bank angles at each latitudinal zone
+ggplot(filtered_w_LI_LZ, aes(x = mean_roll_mean, y = lat_zone), height = stat(density)) +
+  geom_density_ridges(stat = "binline", bins = 200, scale = 0.98, alpha = 0.8, draw_baseline = F)
+
+#re-order laterality direction
+filtered_w_LI_LZ$laterality_dir <- factor(filtered_w_LI_LZ$laterality_dir, levels = c("left_handed", "ambidextrous", "right_handed"))
+
+
+
+#2D plot for latitudinal zones
+X11(width = 3.5, height = 7)
+(d_d <- ggplot(data = filtered_w_LI_LZ, aes(x = laterality_dir_day, y = location_lat_closest_gps_raw)) +
+    stat_bin2d(aes(fill = ..density..), bins = 50) + #one bar per week
+    scale_fill_viridis(option = "plasma") +
+    labs(x = "", y = "Latitude") +
+    scale_x_discrete(labels = c("Left-handed", "Ambidextrous", "Right-handed")) +
+    #start and end of migration on average
+    #geom_vline(xintercept = c(population_migr_period$avg_migration_start,population_migr_period$avg_migration_end),
+    #           linetype = "dashed",  color = "white", linewidth = 0.5, show.legend = TRUE) +
+    ggtitle("Density of laterality categories \nbased on laterality index calculated \nfor each day for each individual.") +
+    theme_minimal() +
+    theme(text = element_text(size = 9)))
+
+ggsave(plot = d_d, filename = "/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/paper_prep/MS2_laterality/exploration_figs/daily_handedness_lat_2d.jpg", 
+       device = "jpg", width = 3.5, height = 7)
+
+
+#### ----------------------- plots for age
+
+data_300 <- filtered_w_LI_LZ %>% 
+  filter(days_since_tagging <= 300)
+
+#2D plot for days since tagging
+X11(width = 7, height = 2.5)
+(d_2 <- ggplot(data = data_300, aes(x = days_since_tagging, y = laterality_bank_day)) +
+    stat_bin2d(aes(fill = stat(density)), geom = "raster", bins = 300/7) + #one bar per week
+    #stat_density_2d(aes(fill = after_stat(density)), geom = "polygon") +
+    scale_fill_viridis(option = "plasma") +
+    labs(x = "Days since tagging", y = "") +
+    scale_y_discrete(labels = c("Left-handed", "Ambidextrous", "Right-handed")) +
+    #start and end of migration on average
+    geom_vline(xintercept = c(population_migr_period$avg_migration_start,population_migr_period$avg_migration_end),
+               linetype = "dashed",  color = "white", linewidth = 0.5, show.legend = TRUE) +
+    ggtitle("Density of handedness categories based on laterality index calculated for \neach day for each individual. \nWhite dashed lines show the migration period.") +
+    theme_minimal() +
+    theme(text = element_text(size = 9)))
+
+ggsave(plot = d_2, filename = "/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/paper_prep/MS2_laterality/exploration_figs/daily_handedness_2d.jpg", 
+       device = "jpg", width = 7, height = 2.5)
 
 #---------------------------------------------------------------------
 ## Step 4: Is laterality more likely when the task is difficult? #####
@@ -1347,20 +1433,7 @@ ggsave(plot = p, filename = "/home/enourani/ownCloud - enourani@ab.mpg.de@ownclo
 
 
 ############################### plotting efforts & proof of laterality ################################################################
-#### ----------------------- average start and end of migration
 
-population_migr_period <- or_w_gps_df_LS %>% 
-  filter(life_stage == "migration") %>% 
-  group_by(individual_local_identifier) %>% 
-  arrange(start_timestamp, .by_group = T) %>% 
-  summarize(migration_start = min(days_since_tagging),
-            migration_end = max(days_since_tagging)) %>% 
-  ungroup() %>% 
-  summarize(avg_migration_start = mean(migration_start) %>% round(), 
-            avg_migration_end = mean(migration_end) %>% round())
-
-#avg_migration_start 38 
-#avg_migration_end 69
 
 #---------------------------------------------------------------------------------
 ## Step 2: Repeatability over time                                           #####
