@@ -183,9 +183,9 @@ or_w_gps_flt <- readRDS("laterality_w_gps_wind_LS_no_filter.rds") %>%
   as.data.frame()
 
 
-#-----------------------------------------------------------------------
-## Step 2: Calculate laterality index for days, (weeks,) and life stages #####
-#-----------------------------------------------------------------------
+#-------------------------------------------------------------------------
+## Step 2: Calculate laterality index for days, life stages, and ind #####
+#-------------------------------------------------------------------------
 
 filtered_w_LI <- or_w_gps_flt %>% 
   group_by(individual_local_identifier) %>% 
@@ -223,6 +223,20 @@ filtered_w_LI <- or_w_gps_flt %>%
     .default = NA)) %>% 
   ungroup() %>% 
   select(-c(total_n, bank_left, bank_right, bank_straight)) %>% 
+  #------------------laterality index for each individual. pooling all data for each ind
+  group_by(individual_local_identifier) %>% 
+  mutate(total_n = n(),
+         bank_left = sum(bank_direction == "left"),
+         bank_right = sum(bank_direction == "right"),
+         bank_straight = sum(bank_direction == "straight"),
+         laterality_bank_ind = (bank_right - bank_left)/(bank_right + bank_left + bank_straight)) %>% 
+  mutate(laterality_dir_ind = case_when(
+    between(laterality_bank_ind, 0.25, 1.0) ~ "right_handed",
+    between(laterality_bank_ind, -1.0, -0.25) ~ "left_handed",
+    between(laterality_bank_ind, -0.25, 0.25) ~ "ambidextrous",
+    .default = NA)) %>% 
+  ungroup() %>% 
+  select(-c(total_n, bank_left, bank_right, bank_straight)) %>% 
   as.data.frame()
 
 #re-order laterality direction
@@ -232,100 +246,131 @@ filtered_w_LI$laterality_dir_stage <- factor(filtered_w_LI$laterality_dir_stage,
 saveRDS(filtered_w_LI, file = "thinned_laterality_w_gps_wind_all_filters.rds")
 
 #-----------------------------------------------------------------------
-## Step 3: How does laterality vary with latitude                  #####
+## Step 3: Distribution of laterality                              #####
 #-----------------------------------------------------------------------
 
-#### ----------------------- average start and end of migration
-population_migr_period <- filtered_w_LI %>% 
-  filter(life_stage == "migration") %>% 
+#read in filtered data. this is not filtered for days since tagging
+filtered_w_LI <- readRDS("thinned_laterality_w_gps_wind_all_filters.rds") %>% 
+  mutate(life_stage = factor(life_stage, levels = c("post-fledging", "migration", "wintering"))) #reorder life stage
+
+#reorder based on the value of handedness during post-fledging
+# Determine the order of individual_local_identifier based on laterality_dir
+ordered_identifiers <- filtered_w_LI %>%
+  filter(life_stage == "post-fledging") %>% 
+  mutate(individual_local_identifier = as.character(individual_local_identifier)) %>% 
   group_by(individual_local_identifier) %>% 
-  arrange(start_timestamp, .by_group = T) %>% 
-  summarize(migration_start = min(days_since_tagging),
-            migration_end = max(days_since_tagging)) %>% 
+  slice(1) %>% 
+  select(individual_local_identifier, laterality_dir_stage) %>% 
+  arrange(laterality_dir_stage) %>% 
   ungroup() %>% 
-  summarize(avg_migration_start = mean(migration_start) %>% round(), 
-            avg_migration_end = mean(migration_end) %>% round())
+  pull(individual_local_identifier)
 
-#avg_migration_start 38 
-#avg_migration_end 69
+#manually edit the orders so that the inds that dont change level are first
+manual_orders <- c("D225_236", "D329_014","D163_696", "D225_232",  "D326_193", "D329_012",  "D329_015", 
+                   "D225_231","D225_226", "D225_234", "D299_269", "D320_474", "D321_345", "D321_584", 
+                   "D323_154", "D225_227", "D311_750", "D321_348", "D321_349", "D323_155", "D324_510","D225_228", 
+                   "D299_270", "D299_271", "D320_475","D321_583" ,"D324_511", "D324_512", "D324_513", "D326_192", "D329_013")
 
-#### ----------------------- plots for latitude
-#bin latitude into zones
-filtered_w_LI_LZ <- filtered_w_LI %>%
-  mutate(lat_zone = cut(location_lat_closest_gps_raw, breaks = seq(-30, 70, by = 10), include.lowest = TRUE))
-
-#plot distribution of bank angles at each latitudinal zone
-ggplot(filtered_w_LI_LZ, aes(x = mean_roll_mean, y = lat_zone), height = stat(density)) +
-  geom_density_ridges(stat = "binline", bins = 200, scale = 0.98, alpha = 0.8, draw_baseline = F)
-
-#re-order laterality direction
-filtered_w_LI_LZ$laterality_dir <- factor(filtered_w_LI_LZ$laterality_dir, levels = c("left_handed", "ambidextrous", "right_handed"))
+# Reorder the factor levels of individual_local_identifier
+filtered_w_LI$individual_local_identifier <- factor(filtered_w_LI$individual_local_identifier, 
+                                                    levels = manual_orders)
 
 
+#### ----------------------- plots for life stage and age
+#### ridgelines for daily laterality for different life stages
+#keep one row per day for each individual. to avoid overplotting
+day_LI <- filtered_w_LI %>% 
+  group_by(individual_local_identifier, unique_date) %>% 
+  slice(1)
 
-#2D plot for latitudinal zones
-X11(width = 3.5, height = 7)
-(d_d <- ggplot(data = filtered_w_LI_LZ, aes(x = laterality_dir_day, y = location_lat_closest_gps_raw)) +
-    stat_bin2d(aes(fill = ..density..), bins = 50) + #one bar per week
-    scale_fill_viridis(option = "plasma") +
-    labs(x = "", y = "Latitude") +
-    scale_x_discrete(labels = c("Left-handed", "Ambidextrous", "Right-handed")) +
-    #start and end of migration on average
-    #geom_vline(xintercept = c(population_migr_period$avg_migration_start,population_migr_period$avg_migration_end),
-    #           linetype = "dashed",  color = "white", linewidth = 0.5, show.legend = TRUE) +
-    ggtitle("Density of laterality categories \nbased on laterality index calculated \nfor each day for each individual.") +
+#density distributions
+(p <- ggplot(day_LI, aes(x = laterality_bank_day, y = individual_local_identifier, color = laterality_dir_stage, fill = laterality_dir_stage)) +
+    stat_density_ridges(quantile_lines = TRUE, rel_min_height = 0.01, alpha = 0.5,
+                        jittered_points = TRUE, 
+                        point_shape = "|", point_size = 1, point_alpha = 1, size = 0.2) + #Trailing tails can be cut off using the rel_min_height aesthetic.
+    geom_vline(xintercept = 0, linetype = "dashed", color = "gray30", linewidth = 0.5) +
+    scale_fill_manual(values = c("left_handed" = "#33638DFF" ,  "ambidextrous" = "#B8DE29FF", "right_handed" = "#20A387FF"),
+                      #labels = c("Left-handed", "Ambidextrous", "Right-handed")) +
+                      labels = c("Left-handed \nLI = -1.0 to -0.25", "Ambidextrous \nLI = -0.25 to 0.25", "Right-handed \nLI = 0.25 to 1.0")) +
+    scale_color_manual(values = c("left_handed" = "#33638DFF", "ambidextrous" = "#B8DE29FF", "right_handed" =  "#20A387FF"),
+                       labels = c("Left-handed \nLI = -1.0 to -0.25", "Ambidextrous \nLI = -0.25 to 0.25", "Right-handed \nLI = 0.25 to 1.0")) +
+    ggtitle("Daily laterality index during circling flight for different life cycle stages.") +
+    facet_wrap(vars(life_stage)) +
+    labs(x = "Laterality index",
+         y = "Individual ID",
+         fill = "Handedness",
+         color = "Handedness") +
     theme_minimal() +
-    theme(text = element_text(size = 9)))
+    theme(legend.key.size = unit(.9, "cm"),
+          plot.title = element_text(size = 11))
+)
 
-ggsave(plot = d_d, filename = "/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/paper_prep/MS2_laterality/exploration_figs/daily_handedness_lat_2d.jpg", 
-       device = "jpg", width = 3.5, height = 7)
+#this is NOT filtered for days since tagging!!
+ggsave(plot = p, filename = "/home/mahle68/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/paper_prep/MS2_laterality/exploration_figs/ind_daily_LI_LS_filtered.jpg", 
+       device = "jpg", width = 9, height = 9)
 
 
-#### ----------------------- plots for age
+#note: histograms wont look good because the different categories are far apart. it will look like sticks
 
-data_300 <- filtered_w_LI_LZ %>% 
-  filter(days_since_tagging <= 300)
 
-#2D plot for days since tagging
-X11(width = 7, height = 2.5)
-(d_2 <- ggplot(data = data_300, aes(x = days_since_tagging, y = laterality_bank_day)) +
-    stat_bin2d(aes(fill = stat(density)), geom = "raster", bins = 300/7) + #one bar per week
-    #stat_density_2d(aes(fill = after_stat(density)), geom = "polygon") +
-    scale_fill_viridis(option = "plasma") +
-    labs(x = "Days since tagging", y = "") +
-    scale_y_discrete(labels = c("Left-handed", "Ambidextrous", "Right-handed")) +
-    #start and end of migration on average
-    geom_vline(xintercept = c(population_migr_period$avg_migration_start,population_migr_period$avg_migration_end),
-               linetype = "dashed",  color = "white", linewidth = 0.5, show.legend = TRUE) +
-    ggtitle("Density of handedness categories based on laterality index calculated for \neach day for each individual. \nWhite dashed lines show the migration period.") +
-    theme_minimal() +
-    theme(text = element_text(size = 9)))
+#### ----------------------- plots for distribution of bank angles for each individual
+#make sure ind orders are the same as in the above plot
+(p_inds <- ggplot(data = filtered_w_LI, aes(x = mean_roll_mean, y = individual_local_identifier, 
+                                            color = laterality_dir_ind, fill = laterality_dir_ind),
+                  height = stat(density)) +
+    geom_density_ridges(stat = "binline", bins = 150, scale = 0.98, alpha = 0.8, draw_baseline = FALSE) +
+    geom_vline(xintercept = 0, linetype = "dashed", color = "gray30", linewidth = 0.5) +
+    scale_x_continuous(breaks = seq(-90, 90, by = 10), 
+                       labels = seq(-90, 90, by = 10),
+                       limits = c(-92, 92)) +
+    scale_y_discrete(expand = expansion(mult = c(0.01, 0.03))) +  # Add extra space above the highest level
+    scale_fill_manual(values = c("left_handed" = "#33638DFF" ,  "ambidextrous" = "#B8DE29FF", "right_handed" = "#20A387FF"),
+                      #labels = c("Left-handed", "Ambidextrous", "Right-handed")) +
+                      labels = c("Left-handed \nLI = -1.0 to -0.25", "Ambidextrous \nLI = -0.25 to 0.25", "Right-handed \nLI = 0.25 to 1.0")) +
+    scale_color_manual(values = c("left_handed" = "#33638DFF", "ambidextrous" = "#B8DE29FF", "right_handed" =  "#20A387FF"),
+                       labels = c("Left-handed \nLI = -1.0 to -0.25", "Ambidextrous \nLI = -0.25 to 0.25", "Right-handed \nLI = 0.25 to 1.0")) +
+    ggtitle("Distribution of banking angles during circling for each individual.") +
+    labs(x = "Bank angle (deg) averaged over each 8 second burst",
+         y = "Individual ID",
+         fill = "Handedness",
+         color = "Handedness") +
+    theme_classic() +
+    theme(legend.key.size = unit(.9, "cm"),
+          plot.title = element_text(size = 11),
+          text = element_text(size = 11),
+          legend.text = element_text(size = 10),
+          legend.title = element_text(size = 9),
+          #axis.text = element_text(color = "gray45"),
+          #panel.grid.major = element_line(color = "gray75"),
+          panel.grid.minor = element_line(color = "white"),
+          axis.title.x = element_text(margin = margin(t = 5))) #increase distance between x-axis values and title
+)
 
-ggsave(plot = d_2, filename = "/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/paper_prep/MS2_laterality/exploration_figs/daily_handedness_2d.jpg", 
-       device = "jpg", width = 7, height = 2.5)
+ggsave(plot = p_inds, filename = "/home/mahle68/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/paper_prep/MS2_laterality/exploration_figs/ind_overall_LI_LS_filtered.jpg", 
+       device = "jpg", width = 9, height = 9)
+
 
 #---------------------------------------------------------------------
 ## Step 4: Is laterality more likely when the task is difficult? #####
 #---------------------------------------------------------------------
 #logistic regression: handedness ~ tightness of circles * age . maybe only for individuals with laterality
+#read in filtered data. this is not filtered for days since tagging
+filtered_w_LI <- readRDS("thinned_laterality_w_gps_wind_all_filters.rds")
 
-or_w_gps_df_LS_pf <- readRDS("thinned_laterality_w_gps_wind_4min_LS_PF.rds") %>% 
-  
-  
-  #### ----------------------- filter for day since tagging and z-transform
-  
-  quantile(or_w_gps_df_LS_pf$days_since_tagging, probs = 0.9) #284 ... 
 
-circling_data <- or_w_gps_df_LS_pf %>% 
+#### ----------------------- filter for day since tagging and z-transform
+quantile(filtered_w_LI$days_since_tagging, probs = 0.9) #284 ... 
+
+circling_data <- filtered_w_LI %>% 
   #filter for days since tagging. only keep the 
-  filter(days_since_tagging < 300) %>% 
+  filter(days_since_tagging < 284) %>% 
   #make sure to do all the filtering before scaling the variables!!!!
   mutate_at(c("mean_roll_sd", "mean_yaw_mean", "mean_yaw_sd", "mean_pitch_mean" , "mean_pitch_sd", "cumulative_pitch_8sec", 
               "abs_cum_yaw", "wind_speed", "days_since_tagging", "location_lat_closest_gps_raw"),
             list(z = ~scale(.))) %>% 
   as.data.frame()
 
-saveRDS(circling_data, file = "thinned_laterality_for_modeling3.rds")
+saveRDS(circling_data, file = "thinned_laterality_for_modeling4.rds")
 
 #### ----------------------- look at multi-collinearity
 
@@ -369,7 +414,7 @@ ggplot(circling_data, aes(x = days_since_tagging, y = laterality_bank)) +
 
 #### ----------------------- model: binomial logistic regression with inla
 
-circling_data <- readRDS("thinned_laterality_for_modeling3.rds")
+circling_data <- readRDS("thinned_laterality_for_modeling4.rds")
 
 #create new data: make predictions for values that fall on a regular grid for optimal visualization 
 
@@ -424,7 +469,7 @@ data <- circling_data %>%
 data$life_stage <- factor(data$life_stage, levels = c("post-fledging", "migration", "wintering"))
 
 
-saveRDS(data, file = "thinned_laterality_for_modeling_w_new_data3.rds")
+saveRDS(data, file = "thinned_laterality_for_modeling_w_new_data4.rds")
 
 m_inla <- inla(laterality_bi ~ 1 + mean_pitch_mean_z * abs_cum_yaw_z * wind_speed_z + 
                  f(individual_local_identifier, mean_pitch_mean_z, model = "iid") +  
@@ -435,22 +480,23 @@ m_inla <- inla(laterality_bi ~ 1 + mean_pitch_mean_z * abs_cum_yaw_z * wind_spee
                control.compute = list(cpo = TRUE),
                control.predictor = list(link = 1, compute = TRUE)) #compute=t means that NA values will be predicted
 
-m_inla <- inla(laterality_bi ~ 1 + mean_pitch_mean_z * abs_cum_yaw_z * wind_speed_z + 
-                 f(individual_local_identifier, mean_pitch_mean_z, model = "iid") +  
-                 f(individual_local_identifier2, abs_cum_yaw_z, model = "iid") + 
-                 f(individual_local_identifier3, wind_speed_z, model = "iid") + 
-                 f(lat_group, model = "rw1"),
-               data = data, family = "binomial",
-               control.compute = list(cpo = TRUE),
-               control.predictor = list(link = 1, compute = TRUE)) #compute=t means that NA values will be predicted
+#model with latitude
+# m_inla <- inla(laterality_bi ~ 1 + mean_pitch_mean_z * abs_cum_yaw_z * wind_speed_z + 
+#                  f(individual_local_identifier, mean_pitch_mean_z, model = "iid") +  
+#                  f(individual_local_identifier2, abs_cum_yaw_z, model = "iid") + 
+#                  f(individual_local_identifier3, wind_speed_z, model = "iid") + 
+#                  f(lat_group, model = "rw1"),
+#                data = data, family = "binomial",
+#                control.compute = list(cpo = TRUE),
+#                control.predictor = list(link = 1, compute = TRUE)) #compute=t means that NA values will be predicted
 
-m_inla <- inla(laterality_bi ~ 1 + mean_pitch_mean_z * abs_cum_yaw_z * wind_speed_z + days_since_tagging_z +
-                 f(individual_local_identifier, mean_pitch_mean_z, model = "iid") +  
-                 f(individual_local_identifier2, abs_cum_yaw_z, model = "iid") + 
-                 f(individual_local_identifier3, wind_speed_z, model = "iid"),
-               data = circling_data, family = "binomial",
-               control.compute = list(cpo = TRUE),
-               control.predictor = list(link = 1, compute = TRUE)) #compute=t means that NA values will be predicted
+# m_inla <- inla(laterality_bi ~ 1 + mean_pitch_mean_z * abs_cum_yaw_z * wind_speed_z + days_since_tagging_z +
+#                  f(individual_local_identifier, mean_pitch_mean_z, model = "iid") +  
+#                  f(individual_local_identifier2, abs_cum_yaw_z, model = "iid") + 
+#                  f(individual_local_identifier3, wind_speed_z, model = "iid"),
+#                data = circling_data, family = "binomial",
+#                control.compute = list(cpo = TRUE),
+#                control.predictor = list(link = 1, compute = TRUE)) #compute=t means that NA values will be predicted
 
 # m_inla <- inla(laterality_bi ~ 1 + mean_pitch_mean_z * abs_cum_yaw_z * wind_speed_z + life_stage +
 #                  f(individual_local_identifier, mean_pitch_mean_z, model = "iid") +  
@@ -480,7 +526,7 @@ pseudo_r_squared <- 1 - (log_likelihood_full / log_likelihood_null) #0.006
 
 #model validation metrics
 eval <- data.frame(CPO = mean(m_inla$cpo$cpo, na.rm = T), # 0.52
-                   Mlik = as.numeric(m_inla$mlik[,1][2])) # -13888
+                   Mlik = as.numeric(m_inla$mlik[,1][2])) # -13050.66
 
 #### coefficients plot -----------------------------------------------------------------------------
 
@@ -507,13 +553,12 @@ X11(width = 7, height = 3)
 (coefs <- ggplot(graph, aes(x = Estimate, y = Factor)) +
     geom_vline(xintercept = 0, linetype="dashed", 
                color = "gray75", linewidth = 0.5) +
-    geom_point(color = "#39568CFF", size = 2)  +
+    geom_point(color = "#0d0887", size = 2)  +
     labs(x = "Estimate", y = "") +
-    #scale_y_discrete(labels = rev(c("Intercept", "Average pitch", "Absolute cumulative yaw"))) +
-    #scale_y_discrete(labels = rev(c("Intercept", "Average pitch", "Absolute cumulative yaw",
-    #                                "Wind speed", "Average pitch: Absolute cumulative yaw", "Average pitch: Wind speed",
-    #                                "Average cumulative yaw: Wind speed", "Average pitch : Average cumulative yaw: \nWind speed "))) +
-    geom_linerange(aes(xmin = Lower, xmax = Upper),color = "#39568CFF", linewidth = 0.5) +
+    scale_y_discrete(labels = rev(c("Intercept", "Average pitch", "Absolute cumulative yaw",
+                                    "Wind speed", "Average pitch: Absolute cumulative yaw", "Average pitch: Wind speed",
+                                    "Average cumulative yaw: Wind speed", "Average pitch : Average cumulative yaw: \nWind speed "))) +
+    geom_linerange(aes(xmin = Lower, xmax = Upper),color = "#0d0887", linewidth = 0.5) +
     ggtitle("a") +
     theme_classic() +
     theme(text = element_text(size = 11),
@@ -525,17 +570,18 @@ X11(width = 7, height = 3)
           axis.title.x = element_text(margin = margin(t = 5))) #increase distance between x-axis values and title
 )
 
-ggsave(plot = coefs, filename = "/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/paper_prep/MS2_laterality/figures/difficulty_model_ws_coeffs_4min.pdf", 
+ggsave(plot = coefs, filename = "/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/paper_prep/MS2_laterality/figures/difficulty_model_ws_coeffs_2min.pdf", 
        device = "pdf", width = 7, height = 4, dpi = 600)
 
 #### ind_specific coefficients plot -----------------------------------------------------------------------------
 
-#extract handedness for each individual. to use for coloring
-handedness <- readRDS("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/R_files/circling_w_LI_population.rds") %>% 
+#extract handedness for each individual. to use for coloring. 
+handedness <- circling_data %>% 
   group_by(individual_local_identifier) %>% 
   slice(1) %>% 
   ungroup() %>% 
-  select(individual_local_identifier, laterality_dir)
+  select(individual_local_identifier, laterality_dir_ind)
+
 
 #extract random effects,  ID is for the unique individuals
 #mean_pitch_mean_z
@@ -548,7 +594,7 @@ random_effects_yaw <- m_inla$summary.random$individual_local_identifier2
 random_effects_wind <- m_inla$summary.random$individual_local_identifier3
 
 #extract unique individual IDs from original data
-ind_IDs <- unique(data$individual_local_identifier)
+#ind_IDs <- unique(data$individual_local_identifier)
 
 pitch <- random_effects_pitch %>% 
   mutate(coef = mean + graph %>% filter(Factor == "mean_pitch_mean_z") %>% pull(Estimate),
@@ -578,22 +624,27 @@ three_vars <- bind_rows(pitch, yaw, wind) %>%
 
 
 #re-order the individuals based on the laterality index
-three_vars$ID <- reorder(three_vars$ID, desc(three_vars$laterality_dir))
+three_vars$laterality_dir_ind <- factor(three_vars$laterality_dir_ind, levels = c("left_handed", "ambidextrous", "right_handed"))
+three_vars$ID <- reorder(three_vars$ID, desc(three_vars$laterality_dir_ind))
+
 
 X11(width = 9, height = 5)
-(coefs_inds <- ggplot(three_vars, aes(x = coef, y = ID, color = laterality_dir)) +
+(coefs_inds <- ggplot(three_vars, aes(x = coef, y = ID, color = laterality_dir_ind)) +
     geom_vline(data = filter(three_vars, variable == "mean_pitch_mean_z"), 
-               aes(xintercept = graph %>% filter(Factor == "mean_pitch_mean_z") %>% pull(Estimate)), linetype = "dashed", color = "gray75",size = 0.5) + 
+               aes(xintercept = graph %>% filter(Factor == "mean_pitch_mean_z") %>% pull(Estimate)), linetype = "dashed", color = "gray75", linewidth = 0.5) + 
     geom_vline(data = filter(three_vars, variable == "abs_cum_yaw_z"), 
-               aes(xintercept = graph %>% filter(Factor == "abs_cum_yaw_z") %>% pull(Estimate)), linetype = "dashed", color = "gray75", size = 0.5) +  
+               aes(xintercept = graph %>% filter(Factor == "abs_cum_yaw_z") %>% pull(Estimate)), linetype = "dashed", color = "gray75", linewidth = 0.5) +  
     geom_vline(data = filter(three_vars, variable == "wind_speed_z"), 
-               aes(xintercept = graph %>% filter(Factor == "wind_speed_z") %>% pull(Estimate)), linetype = "dashed", color = "gray75", size = 0.5) +  
+               aes(xintercept = graph %>% filter(Factor == "wind_speed_z") %>% pull(Estimate)), linetype = "dashed", color = "gray75", linewidth = 0.5) +  
     geom_point(size = 2, position = position_dodge(width = .7))  +
     geom_linerange(aes(xmin = lower, xmax = upper), size = 0.8, position = position_dodge(width = .7)) +
-    scale_color_manual(values = c("left_handed" = "#33638DFF" , "ambidextrous" = "#B8DE29FF", "right_handed" =  "#20A387FF"),
+    # scale_color_manual(values = c("left_handed" = "#33638DFF" , "ambidextrous" = "#B8DE29FF", "right_handed" =  "#20A387FF"),
+    #                    labels = c("Left-handed", "Ambidextrous", "Right-handed"),
+    #                    name = "Handedness") +
+    scale_color_manual(values = c("left_handed" = "#9c179e" , "ambidextrous" = "#fb9f3a", "right_handed" =  "#0d0887"),
                        labels = c("Left-handed", "Ambidextrous", "Right-handed"),
                        name = "Handedness") +
-    scale_y_discrete(labels = ind_IDs) +
+    scale_y_discrete(labels = levels(three_vars$ID)) +
     labs(x = "Estimate", y = "Individual ID") +
     theme_classic() +
     theme(text = element_text(size = 11),
@@ -610,11 +661,29 @@ X11(width = 9, height = 5)
     )) # Separate panels for each variable
     ))
 
-ggsave(plot = coefs_inds, filename = "/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/paper_prep/MS2_laterality/figures/difficulty_model_ws_coeffs_inds_4min.pdf", 
+ggsave(plot = coefs_inds, filename = "/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/paper_prep/MS2_laterality/figures/difficulty_model_ws_coeffs_inds_2min_plasma.pdf", 
        device = "pdf", width = 9, height = 5, dpi = 600)
 
 
 #### plot the smooth term -----------------------------------------------------------------------------
+
+# average start and end of migration... to add to the plot
+population_migr_period <- readRDS("thinned_laterality_for_modeling4.rds") %>% 
+  filter(life_stage == "migration") %>% 
+  group_by(individual_local_identifier) %>% 
+  arrange(start_timestamp, .by_group = T) %>% 
+  summarize(migration_start = min(days_since_tagging),
+            migration_end = max(days_since_tagging)) %>% 
+  ungroup() %>% 
+  summarize(avg_migration_start = mean(migration_start) %>% round(), 
+            avg_migration_end = mean(migration_end) %>% round()) %>% 
+  rename(xmin = avg_migration_start,
+         xmax = avg_migration_end) %>% 
+  mutate(ymin = -0.35,
+         ymax = 0.48) %>% #format in case I want a shaded rectangle for the migration period.
+  as.data.frame()
+
+
 
 # Extract the summary of the smooth term 
 smooth_effects <- m_inla$summary.random$age_group %>% 
@@ -622,15 +691,20 @@ smooth_effects <- m_inla$summary.random$age_group %>%
   mutate(age = ID * attr(data[,colnames(data) == "days_since_tagging_z"],'scaled:scale') +
            attr(data[,colnames(data) == "days_since_tagging_z"],'scaled:center') )
 
-# Plot the smooth term.... HIGHLIGHT MIGRATION period
+# Plot the smooth term....
 X11(width = 3.42, height = 3)
 (s <- ggplot(smooth_effects, aes(x = age, y = mean)) +
-    geom_line(color = "#39568CFF", linewidth = 0.3) +
-    geom_ribbon(aes(ymin = `0.025quant`, ymax = `0.975quant`), fill = "#39568CFF", alpha = 0.12) +
+    #geom_rect(data = population_migr_period, aes(xmin = xmin, xmax = xmax, ymin = ymin, ymax = ymax), 
+    #          fill="black", alpha=0.1, inherit.aes = FALSE) + #add migration period
+    geom_line(color = "#0d0887", linewidth = 0.4) +
+    geom_ribbon(aes(ymin = `0.025quant`, ymax = `0.975quant`), fill = "#0d0887", alpha = 0.12) +
     geom_hline(yintercept = 0, linetype="dashed", 
                color = "gray75", linewidth = 0.5) +
+    geom_vline(xintercept = c(population_migr_period$xmin, population_migr_period$xmax),
+               linetype = "dotted",  color = "black", linewidth = 0.5, show.legend = TRUE) +
     labs(y = "Effect Size", x = "Days since tagging") +
     ggtitle("b") +
+    ylim(-0.35, 0.48) +
     theme_classic() +
     theme(text = element_text(size = 11),
           legend.text = element_text(size = 10),
@@ -644,9 +718,9 @@ X11(width = 3.42, height = 3)
 
 #combine the two plots for the linear and the non-linear terms
 X11(width = 9, height = 3)
-model_output_p <- grid.arrange(coefs, s, nrow = 1, widths = c(0.65, 0.35))
+model_output_p <- grid.arrange(coefs, s, nrow = 1, widths = c(0.6, 0.4))
 
-ggsave(plot = model_output_p, filename = "/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/paper_prep/MS2_laterality/figures/difficulty_model_ws_output_5min.pdf", 
+ggsave(plot = model_output_p, filename = "/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/paper_prep/MS2_laterality/figures/difficulty_model_ws_output_2min.pdf", 
        device = "pdf", width = 9, height = 3, dpi = 600)
 
 
@@ -670,11 +744,12 @@ preds <- data.frame(yaw = data[na_rows,"abs_cum_yaw"],
 pred_py <- preds %>% 
   ggplot() +
   geom_tile(aes(x = x, y = y, fill = preds)) +
-  scale_fill_gradientn(colors = c("#440154FF", "#39568CFF" ,"#20A387FF", "#83e22b", "#FDE725FF"),
-                       values = c(0, 0.5, 0.6, 0.7, 1),
-                       limits = c(0, 1),
-                       na.value = "white",
-                       name = "Probability of Laterality") +
+  scale_fill_gradientn(#colors = c("#440154FF", "#39568CFF" ,"#20A387FF", "#83e22b", "#FDE725FF"),
+    colors = c("#0d0887", "#7e03a8" ,"#cc4778", "#f89540", "#f0f921"),
+    values = c(0, 0.5, 0.6, 0.7, 1),
+    limits = c(0, 1),
+    na.value = "white",
+    name = "Probability of Laterality") +
   guides(fill = guide_colourbar(title.vjust = .95)) + # the legend title needs to move up a bit
   labs(x = "Absolute cumulative yaw", y = "Average pitch") +
   ggtitle("a") +
@@ -711,7 +786,7 @@ preds <- data.frame(yaw = data[na_rows,"abs_cum_yaw"],
 pred_wy <- preds %>% 
   ggplot() +
   geom_tile(aes(x = x, y = y, fill = preds)) +
-  scale_fill_gradientn(colors = c("#440154FF", "#39568CFF" ,"#20A387FF", "#83e22b", "#FDE725FF"),
+  scale_fill_gradientn(colors = c("#0d0887", "#7e03a8" ,"#cc4778", "#f89540", "#f0f921"),
                        values = c(0, 0.5, 0.6, 0.7, 1),
                        limits = c(0, 1),
                        na.value = "white",
@@ -753,7 +828,7 @@ preds <- data.frame(pitch = data[na_rows,"mean_pitch_mean"],
 pred_wp <- preds %>% 
   ggplot() +
   geom_tile(aes(x = x, y = y, fill = preds)) +
-  scale_fill_gradientn(colors = c("#440154FF", "#39568CFF" ,"#20A387FF", "#83e22b", "#FDE725FF"),
+  scale_fill_gradientn(colors = c("#0d0887", "#7e03a8" ,"#cc4778", "#f89540", "#f0f921"),
                        values = c(0, 0.5, 0.6, 0.7, 1),
                        limits = c(0, 1),
                        na.value = "white",
@@ -781,7 +856,7 @@ X11(width = 4.5, height = 6.5)
 combined <- pred_py + pred_wy + pred_wp & theme(legend.position = "bottom")
 (p <- combined + plot_layout(guides = "collect", nrow = 3))
 
-ggsave(plot = p, filename = "/home/mahle68/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/paper_prep/MS2_laterality/figures/difficulty_model_ws_interactions.pdf", 
+ggsave(plot = p, filename = "/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/paper_prep/MS2_laterality/figures/difficulty_model_ws_interactions_2min.pdf", 
        device = "pdf", width = 4.5, height = 6.5, dpi = 600)
 
 #-----------------------------------------------------------------------------------------------------------------------
