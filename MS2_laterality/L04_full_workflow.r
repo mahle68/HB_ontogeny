@@ -480,32 +480,6 @@ m_inla <- inla(laterality_bi ~ 1 + mean_pitch_mean_z * abs_cum_yaw_z * wind_spee
                control.compute = list(cpo = TRUE),
                control.predictor = list(link = 1, compute = TRUE)) #compute=t means that NA values will be predicted
 
-#model with latitude
-# m_inla <- inla(laterality_bi ~ 1 + mean_pitch_mean_z * abs_cum_yaw_z * wind_speed_z + 
-#                  f(individual_local_identifier, mean_pitch_mean_z, model = "iid") +  
-#                  f(individual_local_identifier2, abs_cum_yaw_z, model = "iid") + 
-#                  f(individual_local_identifier3, wind_speed_z, model = "iid") + 
-#                  f(lat_group, model = "rw1"),
-#                data = data, family = "binomial",
-#                control.compute = list(cpo = TRUE),
-#                control.predictor = list(link = 1, compute = TRUE)) #compute=t means that NA values will be predicted
-
-# m_inla <- inla(laterality_bi ~ 1 + mean_pitch_mean_z * abs_cum_yaw_z * wind_speed_z + days_since_tagging_z +
-#                  f(individual_local_identifier, mean_pitch_mean_z, model = "iid") +  
-#                  f(individual_local_identifier2, abs_cum_yaw_z, model = "iid") + 
-#                  f(individual_local_identifier3, wind_speed_z, model = "iid"),
-#                data = circling_data, family = "binomial",
-#                control.compute = list(cpo = TRUE),
-#                control.predictor = list(link = 1, compute = TRUE)) #compute=t means that NA values will be predicted
-
-# m_inla <- inla(laterality_bi ~ 1 + mean_pitch_mean_z * abs_cum_yaw_z * wind_speed_z + life_stage +
-#                  f(individual_local_identifier, mean_pitch_mean_z, model = "iid") +  
-#                  f(individual_local_identifier2, abs_cum_yaw_z, model = "iid") + 
-#                  f(individual_local_identifier3, wind_speed_z, model = "iid"),
-#                data = data, family = "binomial",
-#                control.compute = list(cpo = TRUE),
-#                control.predictor = list(link = 1, compute = TRUE)) #compute=t means that NA values will be predicted
-
 #### model evaluation -----------------------
 
 #look at residuals
