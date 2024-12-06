@@ -77,6 +77,23 @@ acc_n <- acc_g %>%
          acc_raw_length = length(strings_to_numeric(eobs_accelerations_raw))
   )
 
+#calculate vedba for each row of data (1.2 seconds)
+(start <- Sys.time())
+acc_g <- readRDS("all_acceleration_g_apr_24.rds") %>% 
+  rowwise() %>% 
+  mutate(DBA_ls = list(DBA_ftn(eobs_acceleration_g)),
+    VeDBA = DBA_ls[1],
+    ODBA = DBA_ls[2],
+    acc_g_length = length(strings_to_numeric(eobs_acceleration_g)),
+    acc_raw_length = length(strings_to_numeric(eobs_accelerations_raw))) %>%
+  ungroup() %>%
+  select(-DBA_ls) %>% 
+  as.data.frame()
+
+Sys.time() - start #6.7 mins
+
+saveRDS(acc_g, "all_acceleration_g_dba_apr_24.rds")
+
 #STEP 3: data processing: Quaternions (calculate Euler angles) -------------------------------------------------
 
 #open orientation dataset, subset for data with high sampling frequency (this should be post-fledging, migration, and wintering data for laterality tests)
