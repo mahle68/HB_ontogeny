@@ -93,6 +93,30 @@ angle_summaries <- function(yaw, pitch, roll) {
     )
 }
 
+#write a function for calculating vedba and odba
+DBA_ftn <- function(acc_string, axes = 3) {
+  # Convert the space-separated string to numeric values
+  ACC_values <- as.numeric(unlist(strsplit(acc_string, " ")))
+  
+  # Calculate the number of complete samples
+  complete_samples <- floor(length(ACC_values) / axes)
+  
+  # Create a matrix with the accelerometry data. one column per axis
+  ACC1 <- matrix(ACC_values[1:(complete_samples * axes)], 
+                 ncol = axes, byrow = TRUE)
+  
+  # Calculate the dynamic body acceleration components
+  dynamic_ACC <- ACC1 - matrix(colMeans(ACC1), nrow = nrow(ACC1), ncol = axes, byrow = TRUE)
+  
+  # Calculate VeDBA
+  VeDBA <- mean(sqrt(rowSums(dynamic_ACC^2)))
+  
+  # Calculate ODBA
+  ODBA <- mean(rowSums(abs(dynamic_ACC)))
+  
+  # Return the results as a named vector
+  return(c(VeDBA = VeDBA, ODBA = ODBA))
+}
 
 #the following functions are from Kami's IMU_conversion.r
 
