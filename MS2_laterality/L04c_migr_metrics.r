@@ -37,30 +37,28 @@ gps_no_winter <- readRDS("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.
 saveRDS(gps_no_winter, file = "gps_data_LS_no_winter.rds")
 
 
-#filter the data for 15 minutes. then add burs IDs for consecutive points 15 min apart and calculate distances/speeds for only these bursts.
-#define a thinning threshold
-thinning_th <- 15*60
-
-gps_15min <- gps_no_winter %>% 
+#filter the data for 1 hour. find days that have 12-14 hours of data. Calculate daily distance as the sum of hourly distances for the day.
+gps_1hr <- gps_no_winter %>% 
+  #remove the points at (0,0) ... there are 54 of them!!
+  filter(!(location_lat == 0 & location_long == 0)) %>% 
+  filter(life_stage == "migration") %>%  
   st_as_sf(coords = c("location_long", "location_lat"), crs = "EPSG:4326") %>% 
-  mutate(dt_15min = round_date(timestamp, "15 minutes")) %>% 
-  group_by(individual_local_identifier, unique_date, dt_15min) %>% 
+  mutate(dt_1hr = round_date(timestamp, "1 hour")) %>%  #the hourly subset will be used just to pick days that have 12-14 hours of data. 
+  group_by(individual_local_identifier, unique_date, dt_1hr) %>% 
   slice(1) %>% 
   ungroup() %>% 
   group_by(individual_local_identifier, unique_date) %>% 
+  #summarize(n_hrs_in_day = n()) #most days have 12-14 hours of data
+  filter(n() >= 12, .preserve = T) %>%  #keep days with >= 12 hours of data
   arrange(timestamp, .by_group = T) %>% 
-  mutate(time_lag_sec = if_else(row_number() == 1, 0, difftime(timestamp, lag(timestamp), units = "secs") %>% as.numeric()),
-         burst_id = cumsum(time_lag_sec > thinning_th)) %>%  #increase burst id by one, every time time_lag is more than thinning_th
-  ungroup() %>% 
-  group_by(individual_local_identifier, unique_date, burst_id) %>% 
-  filter(n() >= 2, .preserve = T) %>% # Remove groups smaller than 2
-  mutate(step_length = if_else(row_number() == 1, 0, st_distance(geometry, lag(geometry), by_element = TRUE) %>% as.numeric())) %>% #meters
-  ungroup() %>% 
-  as.data.frame()
+  mutate(hrly_step_length = if_else(row_number() == 1, NA, st_distance(geometry, lag(geometry), by_element = TRUE) %>% as.numeric() / 1000), #kilometers
+         daily_distance = sum(hrly_step_length, na.rm = T)) %>% 
+  ungroup() 
+  
 
-#calculate speed using the step lengths..... right?
 
-################# hourly attempt
+
+################# hourly investigations
 
 gps_1hr <- gps_no_winter %>% 
   filter(life_stage == "migration") %>%  
