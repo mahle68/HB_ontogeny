@@ -9,11 +9,11 @@ library(ggridges)
 library(mapview)
 library(viridis)
 
-setwd("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/R_files/")
+setwd("/home/mahle68/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/R_files/")
 wgs <- st_crs("+proj=longlat +datum=WGS84 +no_defs")
 
 #source the imu conversion functions
-source("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/HB_ontogeny/MS1_IMU_classification/00_imu_diy.r")
+source("/home/mahle68/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/HB_ontogeny/MS1_IMU_classification/00_imu_diy.r")
 
 birds_2023 <- c("D329_013", "D329_012", "D329_015", "D329_014", "D326_193", "D326_192")
 
@@ -34,8 +34,8 @@ or_summaries_w_gps <- readRDS("matched_GPS_IMU/GPS_matched_or_w_summaries_8secID
 smpl <- or_summaries_w_gps %>% 
   filter(individual_local_identifier == "D329_013" &
   #         imu_burst_id %in% c(2672, 2674, 2676, 2677, 2678)
-    imu_burst_id %in% c(4927:5817))
-
+  #  imu_burst_id %in% c(4927:5817))
+    imu_burst_id %in% c(2800:4000))
 
 smpl_burst_sf <- smpl %>% 
   drop_na("location_lat_closest_gps") %>% 
@@ -127,7 +127,7 @@ or_8sec_circling_ys_no <- or_8sec_summaries %>%
 
 #look at the distribution of circling vs not, on the map
 
-world <- st_read("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/GIS_files/continent_shapefile/World_Continents.shp") %>% 
+world <- st_read("/home/mahle68/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/GIS_files/continent_shapefile/World_Continents.shp") %>% 
   st_crop(xmin = -17, xmax = 43, ymin = -35.6, ymax = 67) %>%
   st_union()
 

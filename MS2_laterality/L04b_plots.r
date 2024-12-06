@@ -9,12 +9,17 @@ library(ggridges)
 library(mapview)
 
 
-setwd("/home/mahle68/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/R_files/")
+setwd("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/R_files/")
 
 getmode <- function(v) {
   uniqv <- unique(v)
   uniqv[which.max(tabulate(match(v, uniqv)))]
 }
+
+
+#open filtered data with LI calculated for each day and each life_stage
+filtered_w_LI <- readRDS("thinned_laterality_w_gps_wind_all_filters.rds")
+
 
 
 #use Ellen's life cycle stage estimations
