@@ -91,7 +91,8 @@ migr_hourly <- gps_1hr %>% #this is an sf object. keep the lat and long
   mutate(location_long = st_coordinates(.)[1],
          location_lat = st_coordinates(.)[2]) %>% 
   select(individual_id, deployment_id, tag_id, study_id, individual_local_identifier, tag_local_identifier, individual_taxon_canonical_name, location_long, location_lat,
-         ind_day, migration_start, migration_end, first_exploration, life_stage, dt_1hr, geometry, height_msl, hrly_step_length, daily_distance, daily_avg_speed, daily_avg_altitude) %>% 
+         ind_day, migration_start, migration_end, first_exploration, life_stage, dt_1hr, geometry, height_msl, hrly_step_length, daily_distance, daily_avg_speed, daily_avg_altitude,
+         daily_max_altitude) %>% 
   full_join(acc_migr %>% dplyr::select(individual_local_identifier, ind_day, dt_1hr, hrly_mean_vedba, hrly_max_vedba, hrly_min_vedba, hrly_IQR_vedba,
                                        daily_mean_vedba, daily_max_vedba, daily_min_vedba, daily_IQR_vedba)) %>% 
   as.data.frame()

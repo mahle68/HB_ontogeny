@@ -898,7 +898,7 @@ saveRDS(migr_daily_ww, file = "data_migration_performance_models_2min_daily.rds"
 migr_long <- migr_daily_ww %>%
   pivot_longer(cols = c(daily_max_wind, daily_mean_wind, daily_max_cum_yaw, 
                         daily_mean_cum_yaw, daily_max_mean_pitch, 
-                        daily_mean_mean_pitch, daily_distance, daily_avg_speed, daily_avg_altitude,
+                        daily_mean_mean_pitch, daily_distance, daily_avg_speed, daily_avg_altitude, daily_max_altitude
                         daily_mean_vedba, daily_mean_vedba, daily_max_vedba, daily_min_vedba, daily_IQR_vedba),
                names_to = "measure", values_to = "value")
 
@@ -922,61 +922,64 @@ ggplot(migr_long, aes(x = laterality_dir_ind, y = value)) +
 
 ### Model migration performance as a function of laterality -----------------------------------------------------
 
-#re-order the daily laterality index. just covert to character. ambi. will be the reference level anyway
-#migr_d_l_w$laterality_dir_day <- fct_relevel(migr_d_l_w$laterality_dir_day, c("ambidextrous", "left_handed", "right_handed"))
+migr_daily <- readRDS("data_migration_performance_models_2min_daily.rds") %>% 
+  mutate(laterality_dir_day = as.character(laterality_dir_day)) #convert to character, so that"ambidextrous" is the reference level
 
 #z-transform the variables
-data <- migr_d_l_w %>% 
+data <- migr_daily %>% 
   #make sure to do all the filtering before scaling the variables!!!!
-  mutate_at(c(3:8, 14:20),
-            list(z = ~scale(.))) %>% 
+  mutate(across(contains("daily"), ~scale(.), .names = "{.col}_z")) %>%
   as.data.frame()
 
 #check for autocorrelation
 data %>% 
-  dplyr::select(c(21:33)) %>% 
+  dplyr::select(c(41:54)) %>% 
   correlate() %>% 
   corrr::stretch() %>% 
-  filter(abs(r) > 0.5) #correlated: mean and max wind, max cum yaw and mean cum yaw, daily distance an daily speed
+  filter(abs(r) > 0.5) #correlated: mean and max wind, max cum yaw and mean cum yaw, daily distance an average speed, mean vedba and IQR vedba; max and avg altitude
 
 #model
-m_inla <- inla(daily_vedba ~ 1 + daily_max_wind_z + laterality_dir_day + Overall_ind_laterality_dir +
+m_inla <- inla(daily_mean_vedba ~ 1 + daily_max_wind_z + mode_laterality +
                  f(individual_local_identifier, model = "iid"), #put the random effect only on the slope
                data = data,
-               family = "Gamma",
+               #family = "Gamma",
                control.compute = list(cpo = TRUE),
                control.predictor = list(link = 1, compute = TRUE)) #compute=t means that NA values will be predicted
+
+# m_inla <- inla(daily_max_vedba ~ 1 + daily_max_wind_z + mode_laterality +
+#                  f(individual_local_identifier, model = "iid"), #put the random effect only on the slope
+#                data = data,
+#                #family = "Gamma",
+#                control.compute = list(cpo = TRUE),
+#                control.predictor = list(link = 1, compute = TRUE)) #compute=t means that NA values will be predicted
 
 #model distance instead of speed. they are correlated, but the distance model performs better. with no transformation of the predictor
-m_inla <- inla(daily_distance_km ~ 1 + daily_max_wind_z + mode_laterality + Overall_ind_laterality_dir +
+m_inla <- inla(daily_distance ~ 1 + daily_max_wind_z + mode_laterality +
                  f(individual_local_identifier, model = "iid"),
                data = data,
                family = "Gamma",
                control.compute = list(cpo = TRUE),
                control.predictor = list(link = 1, compute = TRUE)) #compute=t means that NA values will be predicted
 
-
-m_inla <- inla(daily_mean_cum_yaw ~ 1 + daily_max_wind_z + laterality_dir_day + 
+m_inla <- inla(daily_mean_cum_yaw ~ 1 + daily_max_wind_z + mode_laterality + 
                  f(individual_local_identifier, model = "iid"),
                data = data,
                control.compute = list(cpo = TRUE),
                control.predictor = list(link = 1, compute = TRUE)) #compute=t means that NA values will be predicted
 
-m_inla <- inla(daily_mean_mean_pitch ~ 1 +  daily_max_wind_z + laterality_dir_day + 
+m_inla <- inla(daily_mean_mean_pitch ~ 1 +  daily_max_wind_z + mode_laterality + 
                  f(individual_local_identifier,  model = "iid"),
                data = data,
                #family = "Gamma",
                control.compute = list(cpo = TRUE),
                control.predictor = list(link = 1, compute = TRUE)) #compute=t means that NA values will be predicted
 
-
-# vertical speed was calculated using the gps.... so think about whether it should be included or not
-m_inla <- inla(log(daily_mean_vert_speed) ~ 1 + laterality_dir_day + daily_max_wind_z +
-                 f(individual_local_identifier, daily_max_wind_z, model = "iid"),
+m_inla <- inla(daily_max_altitude ~ 1 +  daily_max_wind_z + mode_laterality + 
+                 f(individual_local_identifier,  model = "iid"),
                data = data,
+               #family = "Gamma",
                control.compute = list(cpo = TRUE),
                control.predictor = list(link = 1, compute = TRUE)) #compute=t means that NA values will be predicted
-
 
 
 
@@ -1001,19 +1004,19 @@ levels(graph$Factor) <- VarNames
 #graph$Factor_n <- as.numeric(graph$Factor)
 
 #plot the coefficients
-X11(width = 4.5, height = 1.6)
-(coefs_y <- ggplot(graph, aes(x = Estimate, y = Factor)) +
+#X11(width = 4.5, height = 1.6)
+(coefs_p <- ggplot(graph, aes(x = Estimate, y = Factor)) +
     geom_vline(xintercept = 0, linetype="dashed", 
                color = "gray75", linewidth = 0.5) +
     geom_point(color = "#0d0887", size = 2)  +
     labs(x = "Estimate", y = "") +
-    #scale_y_discrete(labels = rev(c("Intercept", "Laterality left-handed", "Laterality rigt-handed",
-    #                                "Maximum wind speed"))) +
+    scale_y_discrete(labels = rev(c("Intercept", "Maximum wind speed", "Laterality left-handed", "Laterality rigt-handed"))) +
     geom_linerange(aes(xmin = Lower, xmax = Upper),color = "#0d0887", linewidth = 0.5) +
     #ggtitle("Daily distance (km)") +
-    #ggtitle("VeDBA (g)") +
+    #ggtitle("Average VeDBA (g)") +
     ggtitle("Average pitch (degrees)") +
     #ggtitle("Average cumulative yaw (degrees)") +
+    #ggtitle("Maximum flight altitude (m)") +
     theme_classic() +
     theme(plot.margin = margin(0, 0, 10, 0, "pt"),
           text = element_text(size = 9),
@@ -1026,12 +1029,12 @@ X11(width = 4.5, height = 1.6)
 )
 
 #put all plots together
-X11(width = 4.5, height = 6.5)
-combined <- coefs_v + coefs_d + coefs_y + coefs_p 
-(p <- combined + plot_layout(axis_titles = "collect", nrow = 4))
+X11(width = 4.5, height = 7)
+combined <- coefs_v + coefs_d + coefs_y + coefs_p + coefs_a
+(p <- combined + plot_layout(axis_titles = "collect", nrow = 5))
 
-ggsave(plot = p, filename = "/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/paper_prep/MS2_laterality/figures/migration_model_coeffs.pdf", 
-       device = "pdf", width = 4.5, height = 6.5, dpi = 600)
+ggsave(plot = p, filename = "/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/paper_prep/MS2_laterality/figures/migration_model_coeffs_2min.pdf", 
+       device = "pdf", width = 4.5, height = 7, dpi = 600)
 
 
 ############################### plotting efforts & proof of laterality ################################################################
