@@ -4,6 +4,7 @@
 
 library(move2)
 library(sf)
+library(terra)
 
 #open migration details to add life stage to gps data
 #life-cycle stages from L03a_tests_per_day.r
@@ -37,7 +38,11 @@ gps_no_winter <- readRDS("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.
 saveRDS(gps_no_winter, file = "gps_data_LS_no_winter.rds")
 
 
+#open geoid layer for calculating flight altitude
+geo <- rast("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/GIS_files/EGM96_us_nga_egm96_15.tif")
+
 #filter the data for 1 hour. find days that have 12-14 hours of data. Calculate daily distance as the sum of hourly distances for the day.
+start <- Sys.time()
 gps_1hr <- gps_no_winter %>% 
   #remove the points at (0,0) ... there are 54 of them!!
   filter(!(location_lat == 0 & location_long == 0)) %>% 
@@ -47,37 +52,31 @@ gps_1hr <- gps_no_winter %>%
   group_by(individual_local_identifier, unique_date, dt_1hr) %>% 
   slice(1) %>% 
   ungroup() %>% 
+  #calculate flight height
+  extract(x = geo, y = ., method = "simple", bind = T) %>% 
+  st_as_sf() %>% 
+  mutate(height_msl = height_above_ellipsoid %>% as.numeric() - geoid_undulation) %>% 
   group_by(individual_local_identifier, unique_date) %>% 
   #summarize(n_hrs_in_day = n()) #most days have 12-14 hours of data
   filter(n() >= 12, .preserve = T) %>%  #keep days with >= 12 hours of data
   arrange(timestamp, .by_group = T) %>% 
   mutate(hrly_step_length = if_else(row_number() == 1, NA, st_distance(geometry, lag(geometry), by_element = TRUE) %>% as.numeric() / 1000), #kilometers
-         daily_distance = sum(hrly_step_length, na.rm = T)) %>% 
+         daily_distance = sum(hrly_step_length, na.rm = T),
+         daily_avg_speed = mean(hrly_step_length, na.rm = T),
+         daily_avg_altitude = mean(height_msl, na.rm = T),  #make sure to remove negative values when modeling
+         daily_max_altitude = max(height_msl, na.rm = T)) %>% 
   ungroup() 
-  
+Sys.time() - start #15 seconds
 
+saveRDS(gps_1hr, file = "gps_data_LS_migr_metrics.rds") #this is an sf object. it has one row per hour, but also the daily summaries
 
-
-################# hourly investigations
-
-gps_1hr <- gps_no_winter %>% 
-  filter(life_stage == "migration") %>%  
-  st_as_sf(coords = c("location_long", "location_lat"), crs = "EPSG:4326") %>% 
-  mutate(dt_1hr = round_date(timestamp, "1 hour")) %>% 
-  group_by(individual_local_identifier, unique_date, dt_1hr) %>% 
-  slice(1) %>% 
-  ungroup() %>% 
-  group_by(individual_local_identifier, unique_date) %>% 
-  #summarize(n_hrs_in_day = n()) #most days have 12-14 hours of data
-  filter(n() >= 12, .preserve = T) #keep days with >= 12 hours of data
-
-#how many days per ind remains?
-gps_1hr %>% 
-  ungroup() %>% 
-  group_by(individual_local_identifier, unique_date) %>% 
-  slice(1) %>% 
-  ungroup() %>% 
-  group_by(individual_local_identifier) %>% 
-  summarize(n()) %>% 
-  as.data.frame() #all individuals have a good number of days left (20-30)
+# #how many days per ind remains?
+# gps_1hr %>% 
+#   ungroup() %>% 
+#   group_by(individual_local_identifier, unique_date) %>% 
+#   slice(1) %>% 
+#   ungroup() %>% 
+#   group_by(individual_local_identifier) %>% 
+#   summarize(n()) %>% 
+#   as.data.frame() #all individuals have a good number of days left (20-30)
 
