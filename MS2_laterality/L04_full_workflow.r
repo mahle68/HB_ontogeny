@@ -838,94 +838,68 @@ ggsave(plot = p, filename = "/home/enourani/ownCloud - enourani@ab.mpg.de@ownclo
 ## Step 5.2: Does laterality help with better performance when individuals are not experienced? migration performance #####
 #-----------------------------------------------------------------------------------------------------------------------
 
-### Daily migration performance -----------------------------------------------------------------------------
+#### data prep -----------------------------------------------------------------------------
 
+#read in thinned liberality data
 circling_data <- readRDS("thinned_laterality_for_modeling4.rds")
 
 #extract handedness for each individual
 handedness <- circling_data %>% 
-  group_by(individual_local_identifier) %>% 
-  slice(1) %>% 
+  distinct(individual_local_identifier, laterality_dir_ind)
+
+##open migration data from L04c_migr_metrics.r
+migr_hrly <- readRDS("hourly_migr_metrics_gps_vedba.rds")
+
+#extract days of migration
+migr_days <- migr_hrly %>% 
+  distinct(ind_day)
+
+#calculate hourly and daily summaries for wind and wobble using the laterality data, then append migration dataframe
+migr_hrly_ww <- circling_data %>% 
+  mutate(ind_day =  paste0(individual_local_identifier, "_", as.character(unique_date))) %>% 
+  filter(ind_day %in% migr_days$ind_day) %>%  #subset for days in the migration data 
+  mutate(dt_1hr = round_date(start_timestamp, "1 hour")) %>%  #assign unique hour
+  group_by(individual_local_identifier, unique_date, dt_1hr) %>%  
+  mutate(hrly_mean_wind_speed = mean(wind_speed, na.rm = T), #summarize wind for every hour. I have a unique wind value for each hour anyway
+         hrly_mean_cum_yaw = mean(abs_cum_yaw, na.rm = T),
+         hrly_max_cum_yaw = max(abs_cum_yaw, na.rm = T),
+         hrly_max_mean_pitch = max(mean_pitch_mean, na.rm = T),
+         hrly_mean_mean_pitch = mean(mean_pitch_mean, na.rm = T),) %>% 
   ungroup() %>% 
-  select(individual_local_identifier, laterality_dir_ind)
-  
-
-#open data from Ellen and append handedness
-migr_d <- readRDS("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/data/from_Ellen/daily_mig_metrics_wobble.rds") %>% 
-  full_join(handedness) %>% 
-  drop_na(individual_local_identifier) %>% 
-  rename(Overall_ind_laterality_dir = laterality_dir_ind) %>% 
-  mutate(daily_mean_vert_speed = as.numeric(daily_mean_vert_speed),
-         Overall_ind_laterality_bi = ifelse(Overall_ind_laterality_dir == "ambidextrous", 0, 1) %>% as.factor(), #create a binary variable for handedness vs not)
-         ind_day = paste0(individual_local_identifier, "_", date)) %>% 
-  as.data.frame()
-
-
-#exploratory plots
-migr_long <- migr_d %>%
-  pivot_longer(cols = c(daily_vedba, daily_distance_km, daily_speed_kmh, 
-                        daily_mean_vert_speed, daily_sd_vert_speed, 
-                        daily_sd_turn_angle, daily_mean_turn_angle),
-               names_to = "measure", values_to = "value")
-
-ggplot(migr_long, aes(x = laterality_dir, y = value)) +
-  geom_violin(trim = FALSE, fill = "lightblue", alpha = 0.5) +
-  geom_boxplot(width = 0.1, outlier.shape = NA) +
-  geom_point(position = position_jitter(width = 0.2), alpha = 0.8, size = 0.2) +
-  labs(x = "Laterality", y = "Value") +
-  theme_classic() +
-  facet_wrap(~ measure, scales = "free_y")
-
-ggplot(migr_long, aes(x = laterality_bi, y = value)) +
-  geom_violin(trim = FALSE, fill = "lightblue", alpha = 0.5) +
-  geom_boxplot(width = 0.1, outlier.shape = NA) +
-  geom_point(position = position_jitter(width = 0.2), alpha = 0.8, size = 0.2) +
-  labs(x = "Laterality", y = "Value") +
-  theme_classic() +
-  facet_wrap(~ measure, scales = "free_y")
-
-### Annotate daily migration with handedness and wind -----------------------------------------------------
-
-#open laterality data for circling
-circling_data <- readRDS("thinned_laterality_for_modeling4.rds")
-
-#migration days
-migration_days <- migr_d %>% 
-  drop_na(date) %>% 
-  distinct(ind_day) %>% 
-  pull(ind_day)
-
-#group by unique day, calculate max and mean wind speed, calculate the laterality index
-migr_d_l_w <- circling_data %>% 
-  mutate(ind_day = paste0(individual_local_identifier, "_", unique_date)) %>% 
-  #subset for days in the migration data 
-  filter(ind_day %in% migration_days) %>% 
-  group_by(individual_local_identifier, unique_date) %>% 
-  summarize(daily_max_wind = max(wind_speed, na.rm = T),
+  group_by(individual_local_identifier, unique_date) %>% #summarize wind for every hour
+  mutate(daily_max_wind = max(wind_speed, na.rm = T),
             daily_mean_wind = mean(wind_speed, na.rm = T),
             daily_max_cum_yaw = max(abs_cum_yaw, na.rm = T),
             daily_mean_cum_yaw = mean(abs_cum_yaw, na.rm = T),
             daily_max_mean_pitch = max(mean_pitch_mean, na.rm = T),
             daily_mean_mean_pitch = mean(mean_pitch_mean, na.rm = T),
-            #I have already calculated daily LI, but in the previous round, I used mode of laterality in the models. so calculate it for making comparisons.
-            mode_laterality = getmode(laterality_dir),
-            ind_day = head(ind_day, 1),
-            #keep the daily LI originally calculated
-            laterality_dir_day = head(laterality_dir_day, 1) %>% as.character(),
-            laterality_bank_day = head(laterality_bank_day, 1)) %>% 
+            #I have already calculated daily LI, but in the previous round, I used mode of laterality in the models. so calculate the mode for making comparisons.
+            mode_laterality = getmode(laterality_dir)) %>% 
   ungroup() %>% 
-  #bind to the daily migration data
-  left_join(migr_d %>% drop_na(date)) %>% 
-  as.data.frame() 
+  select(4, 43, 61, 69:74, 85:98) %>% 
+  group_by(individual_local_identifier, unique_date, dt_1hr) %>% 
+  slice(1) %>% #just keep one row per hour 
+  #bind to the daily migration data. get rid of days in the migr_hrly data that don't have laterality data
+  left_join(migr_hrly) %>% 
+  as.data.frame()
 
-saveRDS(migr_d_l_w, file = "data_migration_performance_models_2min.rds")
+saveRDS(migr_hrly_ww, file = "data_migration_performance_models_2min_hrly.rds") #this only has days that have laterality info
 
+migr_daily_ww <- migr_hrly_ww %>% 
+  select(-contains("hrly")) %>%  #remove hourly data
+  group_by(individual_local_identifier, unique_date) %>%  #keep one row per day
+  slice(1) %>% 
+  as.data.frame()
 
-#exploratory plots
-migr_long <- migr_d_l_w %>%
-  pivot_longer(cols = c(daily_vedba, daily_distance_km, daily_speed_kmh, 
-                        daily_mean_vert_speed, daily_sd_vert_speed, 
-                        daily_sd_turn_angle, daily_mean_turn_angle, daily_max_wind, daily_mean_wind),
+saveRDS(migr_daily_ww, file = "data_migration_performance_models_2min_daily.rds") #this only has days that have laterality info
+
+#### exploratory plots-----------------------------------------------------------------------------
+
+migr_long <- migr_daily_ww %>%
+  pivot_longer(cols = c(daily_max_wind, daily_mean_wind, daily_max_cum_yaw, 
+                        daily_mean_cum_yaw, daily_max_mean_pitch, 
+                        daily_mean_mean_pitch, daily_distance, daily_avg_speed, daily_avg_altitude,
+                        daily_mean_vedba, daily_mean_vedba, daily_max_vedba, daily_min_vedba, daily_IQR_vedba),
                names_to = "measure", values_to = "value")
 
 ggplot(migr_long, aes(x = mode_laterality, y = value)) +
@@ -937,7 +911,7 @@ ggplot(migr_long, aes(x = mode_laterality, y = value)) +
   facet_wrap(~ measure, scales = "free_y")
 
 
-ggplot(migr_long, aes(x = Overall_ind_laterality_dir, y = value)) +
+ggplot(migr_long, aes(x = laterality_dir_ind, y = value)) +
   geom_violin(trim = FALSE, fill = "lightblue", alpha = 0.5) +
   geom_boxplot(width = 0.1, outlier.shape = NA) +
   geom_point(position = position_jitter(width = 0.2), alpha = 0.8, size = 0.2) +
