@@ -938,14 +938,13 @@ data %>%
 #model: separately for daily_mean_vedba, daily_max_altitude, daily_distance, daily_mean_cum_yaw, daily_mean_mean_pitch, daily_max_altitude
 #vertical speed doesnt show a pattern. Omit because it is also unnecessary to have to explain the methodology.
 
-response_vars <- c( "daily_distance", "daily_mean_vedba",
-                    "daily_max_vert_speed","daily_mean_cum_yaw", 
-                    "daily_max_altitude", "daily_mean_mean_pitch")
+response_vars <- c( "daily_distance", "daily_max_altitude",
+                    "daily_mean_vedba", "daily_mean_cum_yaw", 
+                     "daily_mean_mean_pitch")
 
-response_names <- c("Daily distance (km)", "Average VeDBA (g)", 
-                    "Maximum vertical speed (m/s)", "Average cumulative yaw (degrees)", 
-                    "Maximum flight altitude (m)", "Average pitch (degrees)")
-
+response_names <- c("Daily distance (km)", "Maximum flight altitude (m)",
+                    "Average VeDBA (g)", "Average cumulative yaw (degrees)", 
+                     "Average pitch (degrees)")
 
 plots_ls <- lapply(1:length(response_vars), function(response){
   
@@ -999,12 +998,11 @@ plots_ls <- lapply(1:length(response_vars), function(response){
             axis.title.x = element_text(margin = margin(t = 5))) #increase distance between x-axis values and title
 })
 
-
 #put all plots together
 X11(width = 4.3, height = 7)
 combined <- reduce(plots_ls[1:5], `+`)
 (p <- combined + plot_layout(axis_titles = "collect", ncol = 1))
 
 ggsave(plot = p, filename = "/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/paper_prep/MS2_laterality/figures/migration_model_coeffs_bi.pdf", 
-                                  device = "pdf", width = 4.5, height = 7, dpi = 600)
+                                  device = "pdf", width = 4.3, height = 7, dpi = 600)
  
