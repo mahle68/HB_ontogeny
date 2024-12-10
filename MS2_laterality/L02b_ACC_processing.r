@@ -41,7 +41,8 @@ acc_migr <- acc_g %>%
          daily_IQR_vedba = quantile(VeDBA, prob = 0.75) - quantile(VeDBA, prob = 0.25)) %>%  #calculate interquartile range... this includes non-flight data tooo.... so maybe not so useful
   ungroup() %>% 
   group_by(individual_local_identifier, unique_date, dt_1hr) %>% 
-  slice(1) #just keep one row per hour
+  slice(1) %>%#just keep one row per hour 
+  ungroup()
 
 saveRDS(acc_migr, file = "migr_vedba.rds")
 

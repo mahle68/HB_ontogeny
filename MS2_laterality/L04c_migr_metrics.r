@@ -6,6 +6,9 @@ library(move2)
 library(sf)
 library(terra)
 
+
+
+######## daily distance and flight height ------------------------------------------------------------
 #open migration details to add life stage to gps data
 #life-cycle stages from L03a_tests_per_day.r
 life_cycle <- readRDS("updated_life_cycle_nov24.rds")
@@ -81,8 +84,41 @@ saveRDS(gps_1hr, file = "gps_data_LS_migr_metrics.rds") #this is an sf object. i
 #   as.data.frame() #all individuals have a good number of days left (20-30)
 
 
-#---------------------------------append vedba
-  
+######## daily vertical speed ------------------------------------------------------------
+
+#extract days of migration
+gps_1hr <- readRDS("gps_data_LS_migr_metrics.rds")
+
+migr_days <- gps_1hr %>% 
+  distinct(ind_day)
+
+#open segmented GPS data. No need for the matched IMU data
+gps_seg <- list.files("gps_seg_apr24", pattern = ".rds", full.names = T)[1:31] %>% 
+  map(readRDS) %>% 
+  reduce(rbind) %>% 
+  mutate(unique_date = as.Date(timestamp),
+         ind_day = paste0(individual_local_identifier, "_", unique_date)) %>% 
+  filter(ind_day %in% migr_days$ind_day) %>% 
+  mutate(dt_1hr = round_date(timestamp, "1 hour")) %>%  #the hourly subset will be used just to pick days that have 12-14 hours of data. 
+  group_by(individual_local_identifier, unique_date, dt_1hr) %>% 
+  mutate(hrly_mean_vert_speed = mean(vert_speed_smooth, na.rm = T),
+         hrly_max_vert_speed = max(vert_speed_smooth, na.rm = T),
+         hrly_sd_vert_speed = sd(vert_speed_smooth, na.rm = T)) %>% 
+  ungroup() %>% 
+  group_by(individual_local_identifier, unique_date) %>% 
+  mutate(daily_mean_vert_speed = mean(vert_speed_smooth, na.rm = T),
+         daily_max_vert_speed = max(vert_speed_smooth, na.rm = T),
+         daily_sd_vert_speed = sd(vert_speed_smooth, na.rm = T)) %>% 
+  ungroup() %>% 
+  group_by(individual_local_identifier, unique_date, dt_1hr) %>% 
+  slice(1) %>% #just keep one row per hour
+  ungroup()
+
+#append to the gps_1hr in the next step. together with vedba
+
+
+######## daily VeDBA ------------------------------------------------------------
+
 #read in summarized vedba prepared in L02b_ACC_processing.r
 acc_migr <- readRDS("migr_vedba.rds")
 
@@ -90,13 +126,18 @@ acc_migr <- readRDS("migr_vedba.rds")
 migr_hourly <- gps_1hr %>% #this is an sf object. keep the lat and long
   mutate(location_long = st_coordinates(.)[1],
          location_lat = st_coordinates(.)[2]) %>% 
+  st_drop_geometry() %>% 
   select(individual_id, deployment_id, tag_id, study_id, individual_local_identifier, tag_local_identifier, individual_taxon_canonical_name, location_long, location_lat,
-         ind_day, migration_start, migration_end, first_exploration, life_stage, dt_1hr, geometry, height_msl, hrly_step_length, daily_distance, daily_avg_speed, daily_avg_altitude,
+         ind_day, migration_start, migration_end, first_exploration, life_stage, dt_1hr,  unique_date, height_msl, hrly_step_length, daily_distance, daily_avg_speed, daily_avg_altitude,
          daily_max_altitude) %>% 
-  full_join(acc_migr %>% dplyr::select(individual_local_identifier, ind_day, dt_1hr, hrly_mean_vedba, hrly_max_vedba, hrly_min_vedba, hrly_IQR_vedba,
+  full_join(gps_seg %>% st_drop_geometry() %>% dplyr::select(individual_local_identifier, ind_day, dt_1hr, unique_date, hrly_mean_vert_speed, hrly_max_vert_speed, hrly_mean_vert_speed,
+                                      daily_mean_vert_speed, daily_max_vert_speed, daily_sd_vert_speed)) %>% 
+  full_join(acc_migr %>% dplyr::select(individual_local_identifier, ind_day, dt_1hr, unique_date, hrly_mean_vedba, hrly_max_vedba, hrly_min_vedba, hrly_IQR_vedba,
                                        daily_mean_vedba, daily_max_vedba, daily_min_vedba, daily_IQR_vedba)) %>% 
   as.data.frame()
 
 saveRDS(migr_hourly, file = "hourly_migr_metrics_gps_vedba.rds") #still need to add summarized values for yaw, pitch and potentially vertical speed to this.
+
+
 
 

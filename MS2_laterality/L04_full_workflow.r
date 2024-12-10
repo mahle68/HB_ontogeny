@@ -41,11 +41,6 @@ laterality_circling <- readRDS("laterality_index_per_8sec_burst_days_since.rds")
   #FILTER: remove short bursts 
   filter(n_records >= 6) %>% 
   group_by(individual_local_identifier) %>% 
-  #arrange(start_timestamp, .by_group = TRUE) %>% 
-  #calculate the time difference between consecutive bursts  ### DO THIS AFTER FITLERING FOR CIRCLING
-  #mutate(time_lag_sec = if_else(row_number() == 1, 0, 
-  #                              difftime(start_timestamp, lag(start_timestamp), units = "secs") %>% as.numeric())) %>% 
-  #ungroup() %>% 
   mutate(days_since_tagging = as.numeric(days_since_tagging),
          individual_local_identifier = as.factor(individual_local_identifier),
          individual_local_identifier2 = individual_local_identifier,
@@ -69,7 +64,7 @@ laterality_circling <- readRDS("laterality_index_per_8sec_burst_days_since.rds")
 #6940 rows don't have a gps location associated with them.... so, redo GPS-matching and increase the time window to one hour, to match that of the env. data
 #open raw gps data, matched with wind in L04a_env_annotation.r
 
-gps_ls <- readRDS("/home/mahle68/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/data/all_gps_apr15_24_wind.rds") %>% 
+gps_ls <- readRDS("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/data/all_gps_apr15_24_wind.rds") %>% 
   mutate(individual_local_identifier = as.character(individual_local_identifier)) %>% 
   arrange(individual_local_identifier) %>% 
   group_by(individual_local_identifier) %>% 
@@ -843,10 +838,6 @@ ggsave(plot = p, filename = "/home/enourani/ownCloud - enourani@ab.mpg.de@ownclo
 #read in thinned liberality data
 circling_data <- readRDS("thinned_laterality_for_modeling4.rds")
 
-#extract handedness for each individual
-handedness <- circling_data %>% 
-  distinct(individual_local_identifier, laterality_dir_ind)
-
 ##open migration data from L04c_migr_metrics.r
 migr_hrly <- readRDS("hourly_migr_metrics_gps_vedba.rds")
 
@@ -868,13 +859,13 @@ migr_hrly_ww <- circling_data %>%
   ungroup() %>% 
   group_by(individual_local_identifier, unique_date) %>% #summarize wind for every hour
   mutate(daily_max_wind = max(wind_speed, na.rm = T),
-            daily_mean_wind = mean(wind_speed, na.rm = T),
-            daily_max_cum_yaw = max(abs_cum_yaw, na.rm = T),
-            daily_mean_cum_yaw = mean(abs_cum_yaw, na.rm = T),
-            daily_max_mean_pitch = max(mean_pitch_mean, na.rm = T),
-            daily_mean_mean_pitch = mean(mean_pitch_mean, na.rm = T),
-            #I have already calculated daily LI, but in the previous round, I used mode of laterality in the models. so calculate the mode for making comparisons.
-            mode_laterality = getmode(laterality_dir)) %>% 
+         daily_mean_wind = mean(wind_speed, na.rm = T),
+         daily_max_cum_yaw = max(abs_cum_yaw, na.rm = T),
+         daily_mean_cum_yaw = mean(abs_cum_yaw, na.rm = T),
+         daily_max_mean_pitch = max(mean_pitch_mean, na.rm = T),
+         daily_mean_mean_pitch = mean(mean_pitch_mean, na.rm = T),
+         #I have already calculated daily LI, but in the previous round, I used mode of laterality in the models. so calculate the mode for making comparisons.
+         mode_laterality = getmode(laterality_dir)) %>% 
   ungroup() %>% 
   select(4, 43, 61, 69:74, 85:98) %>% 
   group_by(individual_local_identifier, unique_date, dt_1hr) %>% 
@@ -885,7 +876,7 @@ migr_hrly_ww <- circling_data %>%
 
 saveRDS(migr_hrly_ww, file = "data_migration_performance_models_2min_hrly.rds") #this only has days that have laterality info
 
-migr_daily_ww <- migr_hrly_ww %>% 
+migr_daily_ww <- migr_hrly_ww %>% #ww: wind + wobble
   select(-contains("hrly")) %>%  #remove hourly data
   group_by(individual_local_identifier, unique_date) %>%  #keep one row per day
   slice(1) %>% 
@@ -898,7 +889,7 @@ saveRDS(migr_daily_ww, file = "data_migration_performance_models_2min_daily.rds"
 migr_long <- migr_daily_ww %>%
   pivot_longer(cols = c(daily_max_wind, daily_mean_wind, daily_max_cum_yaw, 
                         daily_mean_cum_yaw, daily_max_mean_pitch, 
-                        daily_mean_mean_pitch, daily_distance, daily_avg_speed, daily_avg_altitude, daily_max_altitude
+                        daily_mean_mean_pitch, daily_distance, daily_avg_speed, daily_avg_altitude, daily_max_altitude,
                         daily_mean_vedba, daily_mean_vedba, daily_max_vedba, daily_min_vedba, daily_IQR_vedba),
                names_to = "measure", values_to = "value")
 
@@ -923,7 +914,12 @@ ggplot(migr_long, aes(x = laterality_dir_ind, y = value)) +
 ### Model migration performance as a function of laterality -----------------------------------------------------
 
 migr_daily <- readRDS("data_migration_performance_models_2min_daily.rds") %>% 
-  mutate(laterality_dir_day = as.character(laterality_dir_day)) #convert to character, so that"ambidextrous" is the reference level
+  mutate(laterality_dir_day = as.character(laterality_dir_day), #convert to character, so that"ambidextrous" is the reference level
+         laterality_bi_day = ifelse(laterality_dir_day == "ambidextrous", 0, 1),
+         laterality_bi_day_mode =  ifelse(mode_laterality == "ambidextrous", 0, 1)) 
+
+#replace very large values of max vertical speed with NAs
+migr_daily[which(migr_daily$daily_max_vert_speed > 10), "daily_max_vert_speed"] <- NA
 
 #z-transform the variables
 data <- migr_daily %>% 
@@ -933,411 +929,82 @@ data <- migr_daily %>%
 
 #check for autocorrelation
 data %>% 
-  dplyr::select(c(41:54)) %>% 
+  dplyr::select(ends_with("_z")) %>% 
   correlate() %>% 
   corrr::stretch() %>% 
-  filter(abs(r) > 0.5) #correlated: mean and max wind, max cum yaw and mean cum yaw, daily distance an average speed, mean vedba and IQR vedba; max and avg altitude
+  filter(abs(r) > 0.5) #correlated: mean and max wind, max cum yaw and mean cum yaw, daily distance an average speed, mean vedba and IQR vedba; max and avg altitude;
+                       # sd of vertical speed with avg altitude (0.57) and max altitude (0.64)
 
-#model
-m_inla <- inla(daily_mean_vedba ~ 1 + daily_max_wind_z + mode_laterality +
-                 f(individual_local_identifier, model = "iid"), #put the random effect only on the slope
-               data = data,
-               #family = "Gamma",
-               control.compute = list(cpo = TRUE),
-               control.predictor = list(link = 1, compute = TRUE)) #compute=t means that NA values will be predicted
+#model: separately for daily_mean_vedba, daily_max_altitude, daily_distance, daily_mean_cum_yaw, daily_mean_mean_pitch, daily_max_altitude
+#vertical speed doesnt show a pattern. Omit because it is also unnecessary to have to explain the methodology.
 
-# m_inla <- inla(daily_max_vedba ~ 1 + daily_max_wind_z + mode_laterality +
-#                  f(individual_local_identifier, model = "iid"), #put the random effect only on the slope
-#                data = data,
-#                #family = "Gamma",
-#                control.compute = list(cpo = TRUE),
-#                control.predictor = list(link = 1, compute = TRUE)) #compute=t means that NA values will be predicted
+response_vars <- c( "daily_distance", "daily_mean_vedba",
+                    "daily_max_vert_speed","daily_mean_cum_yaw", 
+                    "daily_max_altitude", "daily_mean_mean_pitch")
 
-#model distance instead of speed. they are correlated, but the distance model performs better. with no transformation of the predictor
-m_inla <- inla(daily_distance ~ 1 + daily_max_wind_z + mode_laterality +
-                 f(individual_local_identifier, model = "iid"),
-               data = data,
-               family = "Gamma",
-               control.compute = list(cpo = TRUE),
-               control.predictor = list(link = 1, compute = TRUE)) #compute=t means that NA values will be predicted
-
-m_inla <- inla(daily_mean_cum_yaw ~ 1 + daily_max_wind_z + mode_laterality + 
-                 f(individual_local_identifier, model = "iid"),
-               data = data,
-               control.compute = list(cpo = TRUE),
-               control.predictor = list(link = 1, compute = TRUE)) #compute=t means that NA values will be predicted
-
-m_inla <- inla(daily_mean_mean_pitch ~ 1 +  daily_max_wind_z + mode_laterality + 
-                 f(individual_local_identifier,  model = "iid"),
-               data = data,
-               #family = "Gamma",
-               control.compute = list(cpo = TRUE),
-               control.predictor = list(link = 1, compute = TRUE)) #compute=t means that NA values will be predicted
-
-m_inla <- inla(daily_max_altitude ~ 1 +  daily_max_wind_z + mode_laterality + 
-                 f(individual_local_identifier,  model = "iid"),
-               data = data,
-               #family = "Gamma",
-               control.compute = list(cpo = TRUE),
-               control.predictor = list(link = 1, compute = TRUE)) #compute=t means that NA values will be predicted
+response_names <- c("Daily distance (km)", "Average VeDBA (g)", 
+                    "Maximum vertical speed (m/s)", "Average cumulative yaw (degrees)", 
+                    "Maximum flight altitude (m)", "Average pitch (degrees)")
 
 
-
-#### coefficients plot -----------------------------------------------------------------------------
-
-# posterior means of coefficients
-graph <- as.data.frame(summary(m_inla)$fixed)
-colnames(graph)[which(colnames(graph)%in%c("0.025quant","0.975quant"))]<-c("Lower","Upper")
-colnames(graph)[which(colnames(graph)%in%c("0.05quant","0.95quant"))]<-c("Lower","Upper")
-colnames(graph)[which(colnames(graph)%in%c("mean"))]<-c("Estimate")
-
-#graph$Model<-i
-graph$Factor <- rownames(graph)
-
-#remove weeks since dispersal
-VarOrder <- rev(unique(graph$Factor))
-VarNames <- VarOrder
-
-graph$Factor <- factor(graph$Factor, levels = VarOrder)
-levels(graph$Factor) <- VarNames
-
-#graph$Factor_n <- as.numeric(graph$Factor)
-
-#plot the coefficients
-#X11(width = 4.5, height = 1.6)
-(coefs_p <- ggplot(graph, aes(x = Estimate, y = Factor)) +
-    geom_vline(xintercept = 0, linetype="dashed", 
-               color = "gray75", linewidth = 0.5) +
-    geom_point(color = "#0d0887", size = 2)  +
-    labs(x = "Estimate", y = "") +
-    scale_y_discrete(labels = rev(c("Intercept", "Maximum wind speed", "Laterality left-handed", "Laterality rigt-handed"))) +
-    geom_linerange(aes(xmin = Lower, xmax = Upper),color = "#0d0887", linewidth = 0.5) +
-    #ggtitle("Daily distance (km)") +
-    #ggtitle("Average VeDBA (g)") +
-    ggtitle("Average pitch (degrees)") +
-    #ggtitle("Average cumulative yaw (degrees)") +
-    #ggtitle("Maximum flight altitude (m)") +
-    theme_classic() +
-    theme(plot.margin = margin(0, 0, 10, 0, "pt"),
-          text = element_text(size = 9),
-          legend.text = element_text(size = 10),
-          legend.title = element_text(size = 9),
-          #axis.text = element_text(color = "gray45"),
-          #panel.grid.major = element_line(color = "gray75"),
-          panel.grid.minor = element_line(color = "white"),
-          axis.title.x = element_text(margin = margin(t = 5))) #increase distance between x-axis values and title
-)
-
-#put all plots together
-X11(width = 4.5, height = 7)
-combined <- coefs_v + coefs_d + coefs_y + coefs_p + coefs_a
-(p <- combined + plot_layout(axis_titles = "collect", nrow = 5))
-
-ggsave(plot = p, filename = "/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/paper_prep/MS2_laterality/figures/migration_model_coeffs_2min.pdf", 
-       device = "pdf", width = 4.5, height = 7, dpi = 600)
-
-
-############################### plotting efforts & proof of laterality ################################################################
-
-
-#---------------------------------------------------------------------------------
-## Step 2: Repeatability over time                                           #####
-#---------------------------------------------------------------------------------
-
-#FILTER: remove pre-fledging
-post_fledging <- or_w_gps_df_LS %>% 
-  filter(life_stage != "pre-fledging")
-
-lapply(split(post_fledging, post_fledging$individual_local_identifier), function(ind){
+plots_ls <- lapply(1:length(response_vars), function(response){
   
-  #repeatability for the whole dataset
-  rpt(laterality_bank ~ (1 | days_since_tagging), grname = "days_since_tagging", data = ind, 
-      datatype = "Gaussian", nboot = 0, npermut = 0) #
+  #model
+  formula <- paste0(response_vars[response], " ~ 1 + daily_max_wind_z + laterality_bi_day") %>% formula()
   
+  #don't include ind ID as a random intercept. some individuals don't have all levels of laterality
+  m_inla <- inla(formula,
+                 data = data,
+                 control.compute = list(cpo = TRUE),
+                 control.predictor = list(link = 1, compute = TRUE)) #compute=t means that NA values will be predicted
+  
+  # coefficients plot 
+  
+  # posterior means of coefficients
+  graph <- as.data.frame(summary(m_inla)$fixed)
+  colnames(graph)[which(colnames(graph)%in%c("0.025quant","0.975quant"))]<-c("Lower","Upper")
+  colnames(graph)[which(colnames(graph)%in%c("0.05quant","0.95quant"))]<-c("Lower","Upper")
+  colnames(graph)[which(colnames(graph)%in%c("mean"))]<-c("Estimate")
+  
+  #graph$Model<-i
+  graph$Factor <- rownames(graph)
+  
+  #remove weeks since dispersal
+  VarOrder <- rev(unique(graph$Factor))
+  VarNames <- VarOrder
+  
+  graph$Factor <- factor(graph$Factor, levels = VarOrder)
+  levels(graph$Factor) <- VarNames
+  
+  #graph$Factor_n <- as.numeric(graph$Factor)
+  
+  #plot the coefficients
+  #X11(width = 4.5, height = 1.6)
+  ggplot(graph, aes(x = Estimate, y = Factor)) +
+      geom_vline(xintercept = 0, linetype="dashed", 
+                 color = "gray75", linewidth = 0.5) +
+      geom_point(color = "#0d0887", size = 2)  +
+      labs(x = "Estimate", y = "") +
+      scale_y_discrete(labels = rev(c("Intercept", "Maximum wind speed", "Laterality"))) +
+      geom_linerange(aes(xmin = Lower, xmax = Upper),color = "#0d0887", linewidth = 0.5) +
+      ggtitle(response_names[response]) +
+      theme_classic() +
+      theme(plot.margin = margin(0, 0, 10, 0, "pt"),
+            text = element_text(size = 9),
+            legend.text = element_text(size = 10),
+            legend.title = element_text(size = 9),
+            #axis.text = element_text(color = "gray45"),
+            #panel.grid.major = element_line(color = "gray75"),
+            panel.grid.minor = element_line(color = "white"),
+            axis.title.x = element_text(margin = margin(t = 5))) #increase distance between x-axis values and title
 })
 
-rpt(laterality_bank ~ (1 | individual_local_identifier), grname = "individual_local_identifier", data = post_fledging, datatype = "Gaussian", 
-    nboot = 0, npermut = 0) #no repeatability
 
-rpt(laterality_bi ~ (1 | life_stage), grname = "life_stage", data = or_w_gps_df_LS, datatype = "Binary", 
-    nboot = 0, npermut = 0) #no repeatability
+#put all plots together
+X11(width = 4.3, height = 7)
+combined <- reduce(plots_ls[1:5], `+`)
+(p <- combined + plot_layout(axis_titles = "collect", ncol = 1))
 
-rpt(cumulative_roll_8sec ~ (1 | individual_local_identifier) + (1 | life_stage), grname = c("individual_local_identifier","life_stage"),
-    data = or_w_gps_df_LS,
-    datatype = "Gaussian", 
-    nboot = 0, npermut = 0) #no repeatability
-
-rpt(laterality_bi ~ (1 | individual_local_identifier) + (1 | life_stage), grname = c("individual_local_identifier","life_stage"),
-    data = or_w_gps_df_LS,
-    datatype = "Binary", 
-    nboot = 0, npermut = 0) #no repeatability
-
-#only for one individual
-rpt(laterality_bi ~  (1 | days_since_tagging), grname = "days_since_tagging",
-    data = or_w_gps_df_LS %>% filter(individual_local_identifier == "D163_696" & life_stage == "wintering"),
-    datatype = "Binary", 
-    nboot = 0, npermut = 0) #no repeatability
-
-#only pre-migration
-
-rpt(laterality_bi ~ (1 | days_since_tagging), grname = "days_since_tagging", data = or_w_gps_df_LS %>% filter(life_stage == "post-fledging"), 
-    datatype = "Binary", nboot = 0, npermut = 0)
-
-rpt(laterality_bi ~ (1 | days_since_tagging), grname = "days_since_tagging", data = or_w_gps_df_LS %>% filter(life_stage == "migration"), 
-    datatype = "Binary", nboot = 0, npermut = 0)
-
-rpt(laterality_bi ~ (1 | days_since_tagging), grname = "days_since_tagging", data = or_w_gps_df_LS %>% filter(life_stage == "wintering"), 
-    datatype = "Binary", nboot = 0, npermut = 0)
-
-
-#try cohen's Kappa
-library(irr)
-
-# Function to calculate Cohen's Kappa for each individual
-calculate_kappa <- function(individual_data) {
-  # Create a table of laterality assignments
-  laterality_table <- table(individual_data$days_since_tagging, individual_data$laterality_dir)
-  
-  # Calculate Cohen's Kappa
-  kappa_result <- kappa2(laterality_table)
-  
-  return(kappa_result$value)
-}
-
-# Apply the function to each individual
-kappa_values <- by(data, data$Individual, calculate_kappa)
-
-#---------------------------------------------------------------------------------
-## Step 2: Plot laterality for each latitudinal zone                         #####
-#---------------------------------------------------------------------------------
-
-#also add a map of the data. color migration section (use same color in step 3 to shade migration period)
-
-
-
-#---------------------------------------------------------
-## Step 3: Plot laterality over time                 #####
-#---------------------------------------------------------
-
-### DAILY LI
-#data: daily laterality index, filtered for circling only.  annotated with day since tagging and life cycle stage
-
-#open meta-data to calculate day since tagging
-meta_data <- read.csv("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/data/EHB_metadata - Sheet1.csv") %>% 
-  mutate(deployment_dt_utc = as.POSIXct(deployment_dt_utc, tz = "UTC")) %>% 
-  filter(nest_country != "Switzerland")
-
-#daily LI calculated in L02_QUAT_exploration.r (L 192~). already filtered for circling flight. add days since tagging.
-LI_days <- readRDS("laterality_index_per_day.rds") %>%
-  mutate(individual_local_identifier = as.character(individual_local_identifier),
-         date = as.Date(unique_date)) %>% 
-  full_join(meta_data %>% select(ring_ID, deployment_dt_utc), by = c("individual_local_identifier" = "ring_ID")) %>% 
-  rowwise() %>% 
-  mutate(days_since_tagging = floor(difftime(date, deployment_dt_utc, unit = "days")) %>% as.numeric()) %>% 
-  ungroup() %>% 
-  mutate(laterality_dir = case_when(
-    between(laterality_bank, 0.25, 1.0) ~ "right_handed",
-    between(laterality_bank, -1.0, -0.25) ~ "left_handed",
-    between(laterality_bank, -0.25, 0.25) ~ "ambidextrous",
-    .default = NA)) %>% 
-  filter(between(days_since_tagging, 1, 270)) %>% 
-  arrange(individual_local_identifier,unique_date ) %>% 
-  as.data.frame()
-
-
-#Plot 2D densities of different directions of handedness
-
-#re-order laterality direction
-LI_days$laterality_dir <- factor(LI_days$laterality_dir, levels = c("left_handed", "ambidextrous", "right_handed"))
-
-
-X11(width = 7, height = 2.5)
-d_d <- ggplot(data = LI_days, aes(x = days_since_tagging, y = laterality_dir)) +
-  stat_bin2d(aes(fill = ..density..), bins = 270/7) + #one bar per week
-  scale_fill_viridis(option = "plasma") +
-  labs(x = "Days since tagging", y = "") +
-  scale_y_discrete(labels = c("Left-handed", "Ambidextrous", "Right-handed")) +
-  #start and end of migration on average
-  geom_vline(xintercept = c(population_migr_period$avg_migration_start,population_migr_period$avg_migration_end),
-             linetype = "dashed",  color = "white", linewidth = 0.5, show.legend = TRUE) +
-  ggtitle("Density of handedness categories based on laterality index calculated for \neach day for each individual. \nWhite dashed lines show the migration period.") +
-  theme_minimal() +
-  theme(text = element_text(size = 9))
-
-ggsave(plot = d_d, filename = "/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/paper_prep/MS2_laterality/exploration_figs/daily_handedness_2d.jpg", 
-       device = "jpg", width = 7, height = 2.5)
-
-### BANK ANGLES IN EACH DAY
-
-#this one is weird
-b_d <- ggplot(data = or_w_gps_df %>% filter(days_since_tagging <= 270), aes(x = days_since_tagging, y = laterality_dir)) +
-  stat_bin2d(aes(fill = ..density..), bins = 270/7) + #one bar per week
-  scale_fill_viridis(option = "plasma") +
-  labs(x = "Days since tagging", y = "") +
-  scale_y_discrete(labels = c("Left-handed", "Ambidextrous", "Right-handed")) +
-  #start and end of migration on average
-  geom_vline(xintercept = c(population_migr_period$avg_migration_start,population_migr_period$avg_migration_end),
-             linetype = "dashed",  color = "white", linewidth = 0.5, show.legend = TRUE) +
-  theme_minimal() +
-  theme(text = element_text(size = 11))
-
-ggsave(plot = b_d, filename = "/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/paper_prep/MS2_laterality/exploration_figs/daily_handedness_bursts_2d.jpg", 
-       device = "jpg", width = 7, height = 2.5)
-
-
-
-## old stuff..............................................................................................................................
-laterality_1sec_days <- laterality_1sec_days %>% 
-  mutate(circling_status = as.factor(circling_status))
-
-X11(width = 7, height = 2.8) 
-(p <- ggplot(data = laterality_1sec_days, aes(x = mean_roll_mean, fill = circling_status)) +
-    geom_histogram(aes(after_stat(density)), binwidth = 1) + #plot the probability
-    geom_vline(xintercept = 0, linetype = "dashed", color = "gray30", linewidth = 0.5) +
-    scale_x_continuous(breaks =seq(-90, 90, by = 10), 
-                       labels = seq(-90, 90, by = 10),
-                       limits = c(-92, 92)) +
-    scale_fill_manual(values = c("straight" = "#238A8DFF", "circling" = "#8a2be2ff", "shallow circling" = "#DCE319FF"),
-                      labels = rev(c("Straight", "Shallow circling", "Circling"))) +
-    labs(x = "Bank angle (deg) averaged over each 8 second burst",
-         y = "Count",
-         fill = "Circularity") +
-    theme_classic() +
-    theme(text = element_text(size = 11),
-          legend.text = element_text(size = 10),
-          legend.title = element_text(size = 9),
-          #axis.text = element_text(color = "gray45"),
-          #panel.grid.major = element_line(color = "gray75"),
-          panel.grid.minor = element_line(color = "white"),
-          axis.title.x = element_text(margin = margin(t = 5))) #increase distance between x-axis values and title
-)
-
-ggsave(plot = p, filename = "/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/paper_prep/MS2_laterality/figures/roll_distribution.pdf", 
-       device = "pdf", width = 7, height = 2.8, dpi = 600)
-
-
-##QQ plot style
-
-# Extract data for each circling status
-straight <- laterality_1sec_days$mean_roll_mean[laterality_1sec_days$circling_status == "straight"]
-circling <- laterality_1sec_days$mean_roll_mean[laterality_1sec_days$circling_status == "circling"]
-shallow <- laterality_1sec_days$mean_roll_mean[laterality_1sec_days$circling_status == "shallow circling"]
-
-# Calculate ECDFs
-ecdfS <- ecdf(straight)
-ecdfC <- ecdf(circling)
-ecdfSh <- ecdf(shallow)
-
-# Create Q-Q data for circling and shallow circling
-qqC <- data.frame(
-  ecdf_straight = ecdfS(circling),
-  ecdf_circling = ecdfC(circling)
-)
-
-qqSh <- data.frame(
-  ecdf_straight = ecdfS(shallow),
-  ecdf_shallow_circling = ecdfSh(shallow)
-)
-
-# Plot using ggplot2
-X11(width = 7, height = 2.8) 
-qq <- ggplot() +
-  geom_line(data = qqC, aes(x = ecdf_straight, y = ecdf_circling, color = "Circling"), linetype = "dashed", linewidth = 0.5) +
-  geom_line(data = qqSh, aes(x = ecdf_straight, y = ecdf_shallow_circling, color = "Shallow Circling"), linetype = "dashed", linewidth = 0.5) +
-  geom_abline(slope = 1, intercept = 0, linetype = "solid", color = "black", linewidth = 0.5) +
-  scale_color_manual(values = c("Circling" = "#8a2be2ff", "Shallow Circling" = "#238A8DFF")) +
-  labs(x = "ECDF Straight", y = "ECDF Comparison", 
-       #title = "Q-Q Plot of Circling and Shallow Circling vs. Straight",
-       color = "Circularity") +
-  theme_classic() +
-  theme(text = element_text(size = 11),
-        legend.text = element_text(size = 10),
-        legend.title = element_text(size = 9),
-        panel.grid.minor = element_line(color = "white"),
-        axis.title.x = element_text(margin = margin(t = 5)))
-
-ggsave(plot = qq, filename = "/home/mahle68/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/paper_prep/MS2_laterality/figures/roll_distribution_qq.pdf", 
-       device = "pdf", width = 7, height = 2.8, dpi = 600)
-
-
-#-------------------------------------------------------
-## Step 3.2: Is there laterality? Individual-level #####
-#-------------------------------------------------------
-
-#calculate laterality index for each individual. overall.
-#based on Bennison et al: 
-#right-side bias (LI = 1.0 to 0.25), a left side bias (LI = −1 to −0.25), no bias (LI = −0.25 to 0.25)
-
-#large circles only
-circling_only <- laterality_1sec_days %>% 
-  filter(circling_status == "circling") %>% #only keep thermaling flight (>45 deg)
-  select(-c("n_records", "bank_left", "bank_right", "bank_straight", "heading_left", #remove laterality columns for the burst-specific indices, because i'll calculate this for each individual
-            "heading_right", "heading_straight", "laterality_bank", "laterality_heading"))
-
-#calculate overall laterality index for each individual
-ind_laterlaity_index <- circling_only %>%
-  mutate(bank_direction = ifelse(mean_roll_mean < 0, "left",
-                                 ifelse(mean_roll_mean > 0, "right", "straight")),
-         heading_direction = ifelse(cumulative_yaw_8sec < 0, "left",
-                                    ifelse(cumulative_yaw_8sec > 0, "right", "straight"))) %>% 
-  group_by(individual_local_identifier) %>% 
-  summarise(total_n = n(),
-            bank_left = sum(bank_direction == "left"),
-            bank_right = sum(bank_direction == "right"),
-            bank_straight = sum(bank_direction == "straight"),
-            heading_left = sum(heading_direction == "left"),
-            heading_right = sum(heading_direction == "right"),
-            heading_straight = sum(heading_direction == "straight"),
-            laterality_bank = (bank_right - bank_left)/(bank_right + bank_left),
-            laterality_heading = (heading_right - heading_left)/(heading_right + heading_left),
-            .groups = 'drop') %>% 
-  mutate(laterality_dir = case_when(
-    between(laterality_bank, 0.25, 1.0) ~ "right_handed",
-    between(laterality_bank, -1.0, -0.25) ~ "left_handed",
-    between(laterality_bank, -0.25, 0.25) ~ "ambidextrous",
-    .default = NA)) %>% 
-  as.data.frame()
-
-#add laterality as a new column to the data
-circling_w_LI <- circling_only %>% 
-  full_join(ind_laterlaity_index, by = "individual_local_identifier") %>% 
-  mutate(laterality_dir = factor(laterality_dir)) %>% 
-  mutate(laterality_dir = fct_relevel(laterality_dir, c("left_handed", "ambidextrous", "right_handed"))) 
-
-
-saveRDS(circling_w_LI, file = "circling_w_LI_population.rds")
-
-#re-order the individuals based on the laterality index
-circling_w_LI$individual_local_identifier <- reorder(circling_w_LI$individual_local_identifier, desc(circling_w_LI$laterality_dir))
-
-X11(width = 7, height = 7)
-(p_inds <- ggplot(data = circling_w_LI, aes(x = mean_roll_mean, y = individual_local_identifier, 
-                                            color = laterality_dir, fill = laterality_dir),
-                  height = stat(density)) +
-    geom_density_ridges(stat = "binline", bins = 150, scale = 0.98, alpha = 0.8, draw_baseline = FALSE) +
-    geom_vline(xintercept = 0, linetype = "dashed", color = "gray30", linewidth = 0.5) +
-    scale_x_continuous(breaks = seq(-90, 90, by = 10), 
-                       labels = seq(-90, 90, by = 10),
-                       limits = c(-92, 92)) +
-    scale_y_discrete(expand = expansion(mult = c(0.01, 0.03))) +  # Add extra space above the highest level
-    scale_fill_manual(values = c("left_handed" = "#33638DFF" , "ambidextrous" = "#B8DE29FF", "right_handed" = "#20A387FF"),
-                      labels = c("Left-handed", "Ambidextrous", "Right-handed")) +
-    scale_color_manual(values = c("left_handed" = "#33638DFF", "ambidextrous" = "#B8DE29FF", "right_handed" =  "#20A387FF"),
-                       labels = c("Left-handed", "Ambidextrous", "Right-handed")) +
-    labs(x = "Bank angle (deg) averaged over each 8 second burst",
-         y = "Individual ID",
-         fill = "Handedness",
-         color = "Handedness") +
-    theme_classic() +
-    theme(text = element_text(size = 11),
-          legend.text = element_text(size = 10),
-          legend.title = element_text(size = 9),
-          #axis.text = element_text(color = "gray45"),
-          #panel.grid.major = element_line(color = "gray75"),
-          panel.grid.minor = element_line(color = "white"),
-          axis.title.x = element_text(margin = margin(t = 5))) #increase distance between x-axis values and title
-)
-ggsave(plot = p_inds, filename = "/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/paper_prep/MS2_laterality/figures/roll_distr_circling_inds.pdf", 
-       device = "pdf", width = 7, height = 7, dpi = 600)
-
-
+ggsave(plot = p, filename = "/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/paper_prep/MS2_laterality/figures/migration_model_coeffs_bi.pdf", 
+                                  device = "pdf", width = 4.5, height = 7, dpi = 600)
+ 
