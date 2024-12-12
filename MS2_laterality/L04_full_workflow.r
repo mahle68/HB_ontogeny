@@ -22,7 +22,7 @@ library(gridExtra)
 library(patchwork)
 library(rptR)
 
-setwd("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/R_files/")
+setwd("/home/mahle68/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/R_files/")
 
 getmode <- function(v) {
   uniqv <- unique(v)
@@ -235,8 +235,8 @@ filtered_w_LI <- or_w_gps_flt %>%
   as.data.frame()
 
 #re-order laterality direction
-filtered_w_LI$laterality_dir_day <- factor(filtered_w_LI$laterality_dir_day, levels = c("left_handed", "ambidextrous", "right_handed"))
-filtered_w_LI$laterality_dir_stage <- factor(filtered_w_LI$laterality_dir_stage, levels = c("left_handed", "ambidextrous", "right_handed"))
+filtered_w_LI$laterality_dir_day <- factor(filtered_w_LI$laterality_dir_day, levels = c("right_handed", "ambidextrous", "left_handed"))
+filtered_w_LI$laterality_dir_stage <- factor(filtered_w_LI$laterality_dir_stage, levels = c("right_handed", "ambidextrous", "left_handed"))
 
 saveRDS(filtered_w_LI, file = "thinned_laterality_w_gps_wind_all_filters.rds")
 
@@ -284,25 +284,37 @@ day_LI <- filtered_w_LI %>%
                         jittered_points = TRUE, 
                         point_shape = "|", point_size = 1, point_alpha = 1, size = 0.2) + #Trailing tails can be cut off using the rel_min_height aesthetic.
     geom_vline(xintercept = 0, linetype = "dashed", color = "gray30", linewidth = 0.5) +
-    scale_fill_manual(values = c("left_handed" = "#33638DFF" ,  "ambidextrous" = "#B8DE29FF", "right_handed" = "#20A387FF"),
-                      #labels = c("Left-handed", "Ambidextrous", "Right-handed")) +
-                      labels = c("Left-handed \nLI = -1.0 to -0.25", "Ambidextrous \nLI = -0.25 to 0.25", "Right-handed \nLI = 0.25 to 1.0")) +
-    scale_color_manual(values = c("left_handed" = "#33638DFF", "ambidextrous" = "#B8DE29FF", "right_handed" =  "#20A387FF"),
-                       labels = c("Left-handed \nLI = -1.0 to -0.25", "Ambidextrous \nLI = -0.25 to 0.25", "Right-handed \nLI = 0.25 to 1.0")) +
-    ggtitle("Daily laterality index during circling flight for different life cycle stages.") +
-    facet_wrap(vars(life_stage)) +
+    scale_fill_manual(values = c("right_handed" =  "#0d0887", "ambidextrous" = "#fb9f3a", "left_handed" = "#9c179e"),
+                      labels = c("Right-handed \nLI = 0.25 to 1.0", 
+                                 "Ambidextrous \nLI = -0.25 to 0.25",
+                                 "Left-handed \nLI = -1.0 to -0.25")) +
+    scale_color_manual(values = c("right_handed" =  "#0d0887", "ambidextrous" = "#fb9f3a", "left_handed" = "#9c179e"),
+                       labels = c("Right-handed \nLI = 0.25 to 1.0", 
+                                  "Ambidextrous \nLI = -0.25 to 0.25",
+                                  "Left-handed \nLI = -1.0 to -0.25")) +
+    #ggtitle("Daily laterality index during circling flight for different life cycle stages.") +
+    facet_wrap(vars(life_stage), labeller = labeller(life_stage = c(
+      "post-fledging" = "Post-fledging",
+      "migration" = "Migration",
+      "wintering" = "Wintering"
+    ))) +
     labs(x = "Laterality index",
          y = "Individual ID",
          fill = "Handedness",
          color = "Handedness") +
-    theme_minimal() +
-    theme(legend.key.size = unit(.9, "cm"),
-          plot.title = element_text(size = 11))
+    theme_classic() +
+    theme(text = element_text(size = 11),
+          legend.text = element_text(size = 10),
+          legend.title = element_text(size = 9),
+          #axis.text = element_text(color = "gray45"),
+          #panel.grid.major = element_line(color = "gray75"),
+          panel.grid.minor = element_line(color = "white"),
+          axis.title.x = element_text(margin = margin(t = 5)))
 )
 
 #this is NOT filtered for days since tagging!!
-ggsave(plot = p, filename = "/home/mahle68/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/paper_prep/MS2_laterality/exploration_figs/ind_daily_LI_LS_filtered.jpg", 
-       device = "jpg", width = 9, height = 9)
+ggsave(plot = p, filename = "/home/mahle68/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/paper_prep/MS2_laterality/figures/ind_daily_LI_LS.jpg", 
+       device = "jpg", width = 7, height = 8)
 
 
 #note: histograms wont look good because the different categories are far apart. it will look like sticks
@@ -319,12 +331,12 @@ ggsave(plot = p, filename = "/home/mahle68/ownCloud - enourani@ab.mpg.de@ownclou
                        labels = seq(-90, 90, by = 10),
                        limits = c(-92, 92)) +
     scale_y_discrete(expand = expansion(mult = c(0.01, 0.03))) +  # Add extra space above the highest level
-    scale_fill_manual(values = c("left_handed" = "#33638DFF" ,  "ambidextrous" = "#B8DE29FF", "right_handed" = "#20A387FF"),
+    scale_fill_manual(values = c("left_handed" = "#9c179e" , "ambidextrous" = "#fb9f3a", "right_handed" =  "#0d0887"),
                       #labels = c("Left-handed", "Ambidextrous", "Right-handed")) +
                       labels = c("Left-handed \nLI = -1.0 to -0.25", "Ambidextrous \nLI = -0.25 to 0.25", "Right-handed \nLI = 0.25 to 1.0")) +
-    scale_color_manual(values = c("left_handed" = "#33638DFF", "ambidextrous" = "#B8DE29FF", "right_handed" =  "#20A387FF"),
+    scale_color_manual(values = c("left_handed" = "#9c179e" , "ambidextrous" = "#fb9f3a", "right_handed" =  "#0d0887"),
                        labels = c("Left-handed \nLI = -1.0 to -0.25", "Ambidextrous \nLI = -0.25 to 0.25", "Right-handed \nLI = 0.25 to 1.0")) +
-    ggtitle("Distribution of banking angles during circling for each individual.") +
+    #ggtitle("Distribution of banking angles during circling for each individual.") +
     labs(x = "Bank angle (deg) averaged over each 8 second burst",
          y = "Individual ID",
          fill = "Handedness",
@@ -342,7 +354,7 @@ ggsave(plot = p, filename = "/home/mahle68/ownCloud - enourani@ab.mpg.de@ownclou
 )
 
 ggsave(plot = p_inds, filename = "/home/mahle68/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/paper_prep/MS2_laterality/exploration_figs/ind_overall_LI_LS_filtered.jpg", 
-       device = "jpg", width = 9, height = 9)
+       device = "jpg", width = 7, height = 8)
 
 
 #---------------------------------------------------------------------

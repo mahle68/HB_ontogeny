@@ -6,8 +6,6 @@ library(move2)
 library(sf)
 library(terra)
 
-
-
 ######## daily distance and flight height ------------------------------------------------------------
 #open migration details to add life stage to gps data
 #life-cycle stages from L03a_tests_per_day.r

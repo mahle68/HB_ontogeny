@@ -12,7 +12,6 @@ library(parallel)
 
 setwd("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/R_files/")
 
-
 #annotating data on movebank failed. even when smaller chunks of data were annotated and returned, many rows had NaN values.
 #Data download using CDS API also failed because I didn't manage to set up the new api key
 #So, data was downloaded from the CDS website, separately for each year
