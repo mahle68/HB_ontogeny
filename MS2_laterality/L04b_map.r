@@ -107,7 +107,7 @@ x11(height = 5.5, width = 3)
     theme_void()
 )
 
-# STEP 2: laterality ----------------------------------
+# STEP 2 whole trajectory: laterality ----------------------------------
 
 lat_zones <- seq(-30,65, by = 10)
 lat_zones <- seq(-30,65, by = 5)
@@ -123,60 +123,116 @@ filtered_w_LI <- readRDS("thinned_laterality_w_gps_wind_all_filters.rds") %>%
   drop_na(lat_zone)
 
 #violin pilot
-x11(height = 5.5, width = 3)
-ggplot(filtered_w_LI, aes(x = mean_roll_mean, y = lat_zone)) +
-  geom_jitter(height = 0.2, width = 0, alpha = 0.1, size = 0.2, color = "black") +
-  geom_violin(trim = T, alpha = 0.7, color = "black", linewidth = 0.2) +
-  geom_boxplot(width = 0.1, outliers = F, color = "black", linewidth = 0.2, fill = "white")+
-  geom_vline(xintercept = 0, linetype = "dashed", color = "gray75", linewidth = 0.5) +
-  annotate("text", x = -90, y = 20.5, label = "Bank angle (°)", size = 3.7, hjust = 0, color = "black") +
-  xlim(-90, 90) +
-  scale_y_discrete(expand = expansion(add = c(1.5, 2))) +  # Add space above and below. to match the lat zones of the map
-  theme_void() +
-  theme(plot.margin = unit(c(.7, .5, .98, .5), "lines"),
-        text = element_text(size = 9),
-        axis.line.x = element_line(), 
-        axis.ticks.x = element_line(), 
-        axis.text.x = element_text(margin = margin(t = 1)),
-        panel.border = element_rect(color = "black", fill = NA, linewidth = 0.5) # Add this line
-  )
+x11(height = 5.5, width = 2.3)
+(bank <- ggplot(filtered_w_LI, aes(x = mean_roll_mean, y = lat_zone)) +
+    geom_jitter(height = 0.2, width = 0, alpha = 0.1, size = 0.2, color = "black") +
+    geom_violin(trim = T, alpha = 0.7, color = "black", linewidth = 0.2) +
+    geom_boxplot(width = 0.1, outliers = F, color = "black", linewidth = 0.2, fill = "white")+
+    geom_vline(xintercept = 0, linetype = "dashed", color = "gray75", linewidth = 0.5) +
+    annotate("text", x = -90, y = 20.5, label = "Bank angle (°)", size = 3.7, hjust = 0, color = "black") +
+    xlim(-90, 90) +
+    scale_y_discrete(expand = expansion(add = c(1.5, 2))) +  # Add space above and below. to match the lat zones of the map
+    theme_void() +
+    theme(plot.margin = unit(c(.7, .5, .98, .5), "lines"),
+          text = element_text(size = 9),
+          axis.line.x = element_line(), 
+          axis.ticks.x = element_line(), 
+          axis.text.x = element_text(margin = margin(t = 1)),
+          panel.border = element_rect(color = "black", fill = NA, linewidth = 0.5) # Add this line
+    )
+)
+
+##see how the two plots look together
+X11(width = 5.5, height = 6)
+model_output_p <- grid.arrange(flyway_map, bank, nrow = 1, widths = c(0.5, 0.5))
 
 
-################
-#plot histograms for each latitudinal zone
-ggplot(filtered_w_LI, aes(x = mean_roll_mean, y = fct_rev(lat_zone), height = stat(density))) +
-  geom_density_ridges(stat = "binline", bins = 100, scale = 0.98, alpha = 0.8, draw_baseline = FALSE) +
-  geom_vline(xintercept = 0, linetype = "dashed", color = "gray30", linewidth = 0.5) +
-  xlim(-90, 90) +
-  theme_void()
+# STEP 3 whole trajectory: hourly wind speed ----------------------------------
 
-ggplot(filtered_w_LI, aes(x = laterality_bank, y = lat_zone)) +
-  stat_density_ridges(quantile_lines = TRUE, rel_min_height = 0.01, alpha = 0.5,
-                      jittered_points = TRUE, 
-                      point_shape = "|", point_size = 1, point_alpha = 1, size = 0.2) +
-  geom_vline(xintercept = 0, linetype = "dashed", color = "gray30", linewidth = 0.5) +
-  theme_void()
+lat_zones <- seq(-30,65, by = 5)
+life_cycle <- readRDS("updated_life_cycle_nov24.rds")
+
+#open wind speed annotated data from L04a_env_annotation.r
+#filter out points before deployment
+wind_speed <- readRDS("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/data/all_gps_apr15_24_wind.rds") %>% 
+  filter(!(location_lat == 0 & location_long == 0)) %>% 
+  mutate(unique_date = as.Date(timestamp)) %>% 
+  full_join(life_cycle %>% select(individual_local_identifier, deployment_dt_utc, first_exploration, migration_start, migration_end), by = "individual_local_identifier") %>% 
+  #remove data before deployment
+  filter(timestamp >= deployment_dt_utc) %>% 
+  group_by(individual_local_identifier, location_lat, location_long, unique_hr) %>%  #unique hour has the date in it too 
+  slice(1) %>%  #make sure there is one value for each hour for each location for each individual
+  ungroup() %>% 
+  mutate(lat_zone = cut(location_lat,
+                        breaks = lat_zones,  # Use lat_zones directly
+                        labels = lat_zones[-length(lat_zones)],  # Labels are the start of each zone
+                        right = FALSE)) %>%  # Include the left bin edge, exclude the right
+  #remove data with no associated latitude
+  drop_na(lat_zone)
+
+saveRDS(wind_speed, file = "wind_speed_for_the_map.rds")
+
+#violin pilot
+x11(height = 5.5, width = 2.3)
+(wsp <- ggplot(wind_speed, aes(x = wind_speed, y = lat_zone)) +
+    geom_jitter(height = 0.2, width = 0, alpha = 0.1, size = 0.2, color = "black") +
+    geom_violin(trim = T, alpha = 0.7, color = "black", linewidth = 0.2) +
+    geom_boxplot(width = 0.1, outliers = F, color = "black", linewidth = 0.2, fill = "white")+
+    geom_vline(xintercept = 0, linetype = "dashed", color = "gray75", linewidth = 0.5) +
+    annotate("text", x = -90, y = 20.5, label = as.character(expression("Hourly wind speed (m s"^-1*")")), 
+             size = 3.7, hjust = 0, color = "black") +
+    scale_y_discrete(expand = expansion(add = c(1.5, 2))) +  # Add space above and below. to match the lat zones of the map
+    theme_void() +
+    theme(plot.margin = unit(c(.7, .5, .98, .5), "lines"),
+          text = element_text(size = 9),
+          axis.line.x = element_line(), 
+          axis.ticks.x = element_line(), 
+          axis.text.x = element_text(margin = margin(t = 1)),
+          panel.border = element_rect(color = "black", fill = NA, linewidth = 0.5) # Add this line
+    )
+)
+
+
+# STEP 4 migration: Daily distance ----------------------------------
+
+lat_zones <- seq(-30,65, by = 5)
+
+#open migration data. prepared in L04_full_workflow......
+migr_daily <- readRDS("data_migration_performance_models_2min_daily.rds") %>% 
+  mutate(lat_zone = cut(location_lat,
+                        breaks = lat_zones,  # Use lat_zones directly
+                        labels = lat_zones[-length(lat_zones)],  # Labels are the start of each zone
+                        right = FALSE)) %>%  # Include the left bin edge, exclude the right
+  #remove data with no associated latitude
+  drop_na(lat_zone)
+
+# STEP 5 migration: hourly distance ----------------------------------
+
+lat_zones <- seq(-30,65, by = 5)
+
+#open migration data. prepared in L04_full_workflow......
+migr_hrly <- readRDS("data_migration_performance_models_2min_hrly.rds") %>% 
+  mutate(lat_zone = cut(location_lat,
+                        breaks = lat_zones,  # Use lat_zones directly
+                        labels = lat_zones[-length(lat_zones)],  # Labels are the start of each zone
+                        right = FALSE)) %>%  # Include the left bin edge, exclude the right
+  #remove data with no associated latitude
+  drop_na(lat_zone)
+
+# STEP 6 migration: hourly flight height ----------------------------------
 
 
 
-#boxplots
-ggplot(filtered_w_LI, aes(x = mean_roll_mean, y = lat_zone)) +
-  geom_jitter(height = 0.2, width = 0, alpha = 0.2, size = 1.2, color = "#febd2a", shape = 19) +
-  geom_boxplot(alpha = 0.7, outliers = F, color = "#0d0887") +
-  geom_vline(xintercept = 0, linetype = "dashed", color = "gray30", linewidth = 0.5) +
-  xlim(-90, 90) +
-  theme_void()
-
-#violin plots
-X11()
-ggplot(filtered_w_LI, aes(x = mean_roll_mean, y = lat_zone)) +
-  geom_jitter(height = 0.2, width = 0, alpha = 0.2, size = 1.2, color = "#db5c68", shape = 16) +
-  geom_violin(trim = T, alpha = 0.1, color = "#0d0887") +
-  geom_boxplot(width = 0.1, outliers = F, color = "#0d0887")+
-  geom_vline(xintercept = 0, linetype = "dashed", color = "gray30", linewidth = 0.5) +
-  xlim(-90, 90) +
-  theme_void()
+# STEP 7 migration: hourly VeDBA ----------------------------------
 
 
 
+
+# STEP 8 migration: hourly cum_yaw and pitch ----------------------------------
+
+
+
+
+
+#subset to only keep one row per day
 

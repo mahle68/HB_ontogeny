@@ -22,7 +22,7 @@ library(gridExtra)
 library(patchwork)
 library(rptR)
 
-setwd("/home/mahle68/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/R_files/")
+setwd("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/R_files/")
 
 getmode <- function(v) {
   uniqv <- unique(v)
@@ -72,7 +72,7 @@ gps_ls <- readRDS("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de
   map(as.data.frame)
 
 #create a list of one element for each individual
-or_ls <- laterality_circling_thin %>% 
+or_ls <- laterality_circling %>% 
   mutate(individual_local_identifier = as.character(individual_local_identifier)) %>% 
   arrange(individual_local_identifier) %>% 
   group_by(individual_local_identifier) %>% 
@@ -104,7 +104,7 @@ find_closest_gps <- function(or_data, gps_data, time_tolerance = 60 * 60) {
 # Create a list of data frames with or data and associated GPS information
 (b <- Sys.time())
 or_w_gps <- map2(or_ls, gps_ls, ~ find_closest_gps(or_data = .x, gps_data = .y))
-Sys.time() - b # 2.5 mins
+Sys.time() - b # 23 mins
 
 #add a column comparing or and gps timestamps. then save one file per individual.
 or_w_gps_df <- lapply(or_w_gps, function(x){
@@ -122,14 +122,18 @@ sum(is.na(or_w_gps_df$start_location_long_closest_gps)) #6940
 no_gps <- or_w_gps_df %>% 
   filter(is.na(timestamp_closest_gps_raw))
 
+saveRDS(or_w_gps_df, file = "annotated_gps_w_wind.rds")
 
 #### ----------------------- add life-cycle stage
 #life-cycle stages from L03a_tests_per_day.r
 life_cycle <- readRDS("updated_life_cycle_nov24.rds")
 
 or_w_gps_df_LS <- or_w_gps_df %>% 
+  select(-deployment_dt_utc) %>% #remove deployment in the dataset and just use the one in life_cycle, which is from the metadata
   mutate(unique_date = as.Date(start_timestamp)) %>% 
-  full_join(life_cycle %>% select(individual_local_identifier, migration_start, migration_end, first_exploration), by = "individual_local_identifier") %>% 
+  full_join(life_cycle %>% select(individual_local_identifier, deployment_dt_utc, first_exploration, migration_start, migration_end), by = "individual_local_identifier") %>% 
+  #remove data before deployment
+  filter(start_timestamp >= deployment_dt_utc) %>% 
   group_by(individual_local_identifier) %>% 
   rowwise() %>% 
   mutate(life_stage = case_when(
@@ -143,12 +147,6 @@ or_w_gps_df_LS <- or_w_gps_df %>%
   as.data.frame()
 
 saveRDS(or_w_gps_df_LS, file = "laterality_w_gps_wind_LS_no_filter.rds")
-
-#FILTER: remove pre-fledging
-#or_w_gps_df_LS_pf <- or_w_gps_df_LS %>% 
-#  filter(life_stage != "pre-fledging")
-
-#saveRDS(or_w_gps_df_LS_pf, file = "thinned_laterality_w_gps_wind_4min_LS_PF.rds") #only post-fledging data
 
 #---------------------------------------------------------------------------------
 ## Step 2: Data filtering                                                    #####
@@ -262,7 +260,7 @@ ordered_identifiers <- filtered_w_LI %>%
 
 #manually edit the orders so that the inds that dont change level are first
 manual_orders <- c("D225_236", "D329_014","D163_696", "D225_232",  "D326_193", "D329_012",  "D329_015", 
-                   "D225_231","D225_226", "D225_234", "D299_269", "D320_474", "D321_345", "D321_584", 
+                   "D225_231","D299_269", "D320_474", "D321_345", "D225_226", "D225_234", "D321_584", 
                    "D323_154", "D225_227", "D311_750", "D321_348", "D321_349", "D323_155", "D324_510","D225_228", 
                    "D299_270", "D299_271", "D320_475","D321_583" ,"D324_511", "D324_512", "D324_513", "D326_192", "D329_013")
 
@@ -292,7 +290,7 @@ day_LI <- filtered_w_LI %>%
                        labels = c("Right-handed \nLI = 0.25 to 1.0", 
                                   "Ambidextrous \nLI = -0.25 to 0.25",
                                   "Left-handed \nLI = -1.0 to -0.25")) +
-    #ggtitle("Daily laterality index during circling flight for different life cycle stages.") +
+    scale_x_continuous(breaks = c(-1, 0, 1)) +  # Set x-axis labels to -1, 0, and 1
     facet_wrap(vars(life_stage), labeller = labeller(life_stage = c(
       "post-fledging" = "Post-fledging",
       "migration" = "Migration",
@@ -304,21 +302,16 @@ day_LI <- filtered_w_LI %>%
          color = "Handedness") +
     theme_classic() +
     theme(text = element_text(size = 11),
-          legend.text = element_text(size = 10),
-          legend.title = element_text(size = 9),
-          #axis.text = element_text(color = "gray45"),
-          #panel.grid.major = element_line(color = "gray75"),
+          legend.text = element_text(size = 9),
+          legend.title = element_text(size = 10),
           panel.grid.minor = element_line(color = "white"),
-          axis.title.x = element_text(margin = margin(t = 5)))
+          axis.title.x = element_text(margin = margin(t = 5)),
+          legend.key.spacing.y = unit(0.3, "cm")) # Adjust the spacing of legend items
 )
 
 #this is NOT filtered for days since tagging!!
-ggsave(plot = p, filename = "/home/mahle68/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/paper_prep/MS2_laterality/figures/ind_daily_LI_LS.jpg", 
+ggsave(plot = p, filename = "/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/paper_prep/MS2_laterality/figures/ind_daily_LI_LS.jpg", 
        device = "jpg", width = 7, height = 8)
-
-
-#note: histograms wont look good because the different categories are far apart. it will look like sticks
-
 
 #### ----------------------- plots for distribution of bank angles for each individual
 #make sure ind orders are the same as in the above plot
@@ -342,18 +335,15 @@ ggsave(plot = p, filename = "/home/mahle68/ownCloud - enourani@ab.mpg.de@ownclou
          fill = "Handedness",
          color = "Handedness") +
     theme_classic() +
-    theme(legend.key.size = unit(.9, "cm"),
-          plot.title = element_text(size = 11),
-          text = element_text(size = 11),
-          legend.text = element_text(size = 10),
-          legend.title = element_text(size = 9),
-          #axis.text = element_text(color = "gray45"),
-          #panel.grid.major = element_line(color = "gray75"),
+    theme(text = element_text(size = 11),
+          legend.text = element_text(size = 9),
+          legend.title = element_text(size = 10),
           panel.grid.minor = element_line(color = "white"),
-          axis.title.x = element_text(margin = margin(t = 5))) #increase distance between x-axis values and title
+          axis.title.x = element_text(margin = margin(t = 5)), #increase distance between x-axis values and title
+          legend.key.spacing.y = unit(0.3, "cm")) # Adjust the spacing of legend items) 
 )
 
-ggsave(plot = p_inds, filename = "/home/mahle68/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/paper_prep/MS2_laterality/exploration_figs/ind_overall_LI_LS_filtered.jpg", 
+ggsave(plot = p_inds, filename = "/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/paper_prep/MS2_laterality/figures/ind_overall_LI_LS_filtered.jpg", 
        device = "jpg", width = 7, height = 8)
 
 
@@ -543,10 +533,8 @@ X11(width = 7, height = 3)
     ggtitle("a") +
     theme_classic() +
     theme(text = element_text(size = 11),
-          legend.text = element_text(size = 10),
-          legend.title = element_text(size = 9),
-          #axis.text = element_text(color = "gray45"),
-          #panel.grid.major = element_line(color = "gray75"),
+          legend.text = element_text(size = 9),
+          legend.title = element_text(size = 10),
           panel.grid.minor = element_line(color = "white"),
           axis.title.x = element_text(margin = margin(t = 5))) #increase distance between x-axis values and title
 )
@@ -609,7 +597,7 @@ three_vars$laterality_dir_ind <- factor(three_vars$laterality_dir_ind, levels = 
 three_vars$ID <- reorder(three_vars$ID, desc(three_vars$laterality_dir_ind))
 
 
-X11(width = 9, height = 5)
+X11(width = 7, height = 8)
 (coefs_inds <- ggplot(three_vars, aes(x = coef, y = ID, color = laterality_dir_ind)) +
     geom_vline(data = filter(three_vars, variable == "mean_pitch_mean_z"), 
                aes(xintercept = graph %>% filter(Factor == "mean_pitch_mean_z") %>% pull(Estimate)), linetype = "dashed", color = "gray75", linewidth = 0.5) + 
@@ -629,10 +617,8 @@ X11(width = 9, height = 5)
     labs(x = "Estimate", y = "Individual ID") +
     theme_classic() +
     theme(text = element_text(size = 11),
-          legend.text = element_text(size = 10),
-          legend.title = element_text(size = 9),
-          #axis.text = element_text(color = "gray45"),
-          #panel.grid.major = element_line(color = "gray75"),
+          legend.text = element_text(size = 9),
+          legend.title = element_text(size = 10),
           panel.grid.minor = element_line(color = "white"),
           axis.title.x = element_text(margin = margin(t = 5))) + #increase distance between x-axis values and title
     facet_wrap(~ variable, scales = "free_x", labeller = as_labeller(c(
@@ -643,7 +629,7 @@ X11(width = 9, height = 5)
     ))
 
 ggsave(plot = coefs_inds, filename = "/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/paper_prep/MS2_laterality/figures/difficulty_model_ws_coeffs_inds_2min_plasma.pdf", 
-       device = "pdf", width = 9, height = 5, dpi = 600)
+       device = "pdf", width = 7, height = 8, dpi = 600)
 
 
 #### plot the smooth term -----------------------------------------------------------------------------
@@ -688,10 +674,8 @@ X11(width = 3.42, height = 3)
     ylim(-0.35, 0.48) +
     theme_classic() +
     theme(text = element_text(size = 11),
-          legend.text = element_text(size = 10),
-          legend.title = element_text(size = 9),
-          #axis.text = element_text(color = "gray45"),
-          #panel.grid.major = element_line(color = "gray75"),
+          legend.text = element_text(size = 9),
+          legend.title = element_text(size = 10),
           panel.grid.minor = element_line(color = "white"),
           axis.title.x = element_text(margin = margin(t = 5)))
 )
@@ -741,8 +725,8 @@ pred_py <- preds %>%
         legend.position = "bottom",
         legend.key.width=unit(.7,"cm"),
         legend.key.height=unit(.25,"cm"),
-        legend.text = element_text(size = 8),
-        legend.title = element_text(size = 9),
+        legend.text = element_text(size = 9),
+        legend.title = element_text(size = 10),
         panel.grid.minor = element_line(color = "white"),
         axis.title.x = element_text(margin = margin(t = 5))) + # increase distance between x-axis values and title
   scale_x_continuous(expand = c(0, 0)) + #remove space between the raster and the axis
@@ -782,8 +766,8 @@ pred_wy <- preds %>%
         legend.position = "bottom",
         legend.key.width=unit(.7,"cm"),
         legend.key.height=unit(.25,"cm"),
-        legend.text = element_text(size = 8),
-        legend.title = element_text(size = 9),
+        legend.text = element_text(size = 9),
+        legend.title = element_text(size = 10),
         panel.grid.minor = element_line(color = "white"),
         axis.title.x = element_text(margin = margin(t = 5))) + # increase distance between x-axis values and title
   scale_x_continuous(expand = c(0, 0)) + #remove space between the raster and the axis
@@ -824,8 +808,8 @@ pred_wp <- preds %>%
         legend.position = "bottom",
         legend.key.width=unit(.7,"cm"),
         legend.key.height=unit(.25,"cm"),
-        legend.text = element_text(size = 8),
-        legend.title = element_text(size = 9),
+        legend.text = element_text(size = 9),
+        legend.title = element_text(size = 10),
         panel.grid.minor = element_line(color = "white"),
         axis.title.x = element_text(margin = margin(t = 5))) + # increase distance between x-axis values and title
   scale_x_continuous(expand = c(0, 0)) + #remove space between the raster and the axis
@@ -879,7 +863,7 @@ migr_hrly_ww <- circling_data %>%
          #I have already calculated daily LI, but in the previous round, I used mode of laterality in the models. so calculate the mode for making comparisons.
          mode_laterality = getmode(laterality_dir)) %>% 
   ungroup() %>% 
-  select(4, 43, 61, 69:74, 85:98) %>% 
+  select(4, 42, 59, 64, 69:74, 85:98) %>% 
   group_by(individual_local_identifier, unique_date, dt_1hr) %>% 
   slice(1) %>% #just keep one row per hour 
   #bind to the daily migration data. get rid of days in the migr_hrly data that don't have laterality data
@@ -1002,10 +986,8 @@ plots_ls <- lapply(1:length(response_vars), function(response){
       theme_classic() +
       theme(plot.margin = margin(0, 0, 10, 0, "pt"),
             text = element_text(size = 9),
-            legend.text = element_text(size = 10),
-            legend.title = element_text(size = 9),
-            #axis.text = element_text(color = "gray45"),
-            #panel.grid.major = element_line(color = "gray75"),
+            legend.text = element_text(size = 9),
+            legend.title = element_text(size = 10),
             panel.grid.minor = element_line(color = "white"),
             axis.title.x = element_text(margin = margin(t = 5))) #increase distance between x-axis values and title
 })

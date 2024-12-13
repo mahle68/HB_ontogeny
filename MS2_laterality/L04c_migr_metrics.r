@@ -122,8 +122,8 @@ acc_migr <- readRDS("migr_vedba.rds")
 
 #append to the gps data summarized for migration period
 migr_hourly <- gps_1hr %>% #this is an sf object. keep the lat and long
-  mutate(location_long = st_coordinates(.)[1],
-         location_lat = st_coordinates(.)[2]) %>% 
+  mutate(location_long = st_coordinates(.)[,1],
+         location_lat = st_coordinates(.)[,2]) %>% 
   st_drop_geometry() %>% 
   select(individual_id, deployment_id, tag_id, study_id, individual_local_identifier, tag_local_identifier, individual_taxon_canonical_name, location_long, location_lat,
          ind_day, migration_start, migration_end, first_exploration, life_stage, dt_1hr,  unique_date, height_msl, hrly_step_length, daily_distance, daily_avg_speed, daily_avg_altitude,
@@ -134,8 +134,5 @@ migr_hourly <- gps_1hr %>% #this is an sf object. keep the lat and long
                                        daily_mean_vedba, daily_max_vedba, daily_min_vedba, daily_IQR_vedba)) %>% 
   as.data.frame()
 
-saveRDS(migr_hourly, file = "hourly_migr_metrics_gps_vedba.rds") #still need to add summarized values for yaw, pitch and potentially vertical speed to this.
-
-
-
+saveRDS(migr_hourly, file = "hourly_migr_metrics_gps_vedba.rds") #hourly wind and wobble will be added in L04_full_workflow.r
 
