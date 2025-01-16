@@ -7,7 +7,7 @@ library(sf)
 library(mapview)
 library(ggridges)
 
-setwd("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/R_files/")
+setwd("/home/mahle68/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/R_files/")
 
 lat_zones <- seq(-30,65, by = 5)
 
@@ -18,7 +18,7 @@ lat_zones <- seq(-30,65, by = 5)
 
 # data prep
 #open metadata to extract deployment date (the tracking data has some undeployed points in it)
-deployment <- read.csv("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/data/EHB_metadata - Sheet1.csv") %>% 
+deployment <- read.csv("/home/mahle68/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/data/EHB_metadata - Sheet1.csv") %>% 
   filter(nest_country == "Finland") %>% 
   mutate(deployment_dt_utc = as.POSIXct(deployment_dt_utc)) %>% 
   dplyr::select(ring_ID, deployment_dt_utc) %>% 
@@ -32,7 +32,7 @@ life_cycle <- readRDS("updated_life_cycle_nov24.rds") %>%
 saveRDS(life_cycle, file = "updated_life_cycle_nov24.rds")
 
 
-data <- readRDS("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/data/all_gps_apr15_24.rds") 
+data <- readRDS("/home/mahle68/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/data/all_gps_apr15_24.rds") 
 
 cleaned_gps <- data %>% 
   #remove the points at (0,0) 
@@ -67,7 +67,7 @@ cleaned_gps <- readRDS("cleaned_gps_for_laterality_map.rds")
 wgs <- st_crs("+proj=longlat +datum=WGS84 +no_defs")
 
 #open the continent boundaries layer
-world <- st_read("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/GIS_files/continent_shapefile/World_Continents.shp") %>% 
+world <- st_read("/home/mahle68/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/GIS_files/continent_shapefile/World_Continents.shp") %>% 
   st_crop(xmin = -17.5, xmax = 43, ymin = -35.6, ymax = 70) %>%
   st_union()
 
@@ -113,7 +113,9 @@ x11(height = 5.5, width = 3)
     xlim(-17, 42.5) +
     ylim(-35, 65) +
     theme_void() +
-    theme(text = element_text(size = 9))
+    theme(text = element_text(size = 9),
+          plot.title = element_text(size = 10),
+          plot.margin = margin(2, 0, 5, 0, "pt"))
 )
 
 ggsave(plot = flyway_map, filename = "/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/paper_prep/MS2_laterality/figures/flyway_map.png", 
@@ -146,11 +148,12 @@ x11(height = 5.5, width = 2.3)
     xlim(-90, 90) +
     scale_y_discrete(expand = expansion(add = c(1.7, 1.5))) +  # Add space above and below. to match the lat zones of the map... place the violins in between the two lat lines
     theme_void() +
-    theme(plot.margin = unit(c(.1, .5, .4, .5), "lines"),
+    theme(plot.margin = unit(c(.1, 0, .4, .5), "lines"),
           text = element_text(size = 9),
           axis.line.x = element_line(), 
           axis.ticks.x = element_line(), 
           axis.text.x = element_text(margin = margin(t = 1)),
+          plot.title = element_text(size = 10),
           panel.border = element_rect(color = "black", fill = NA, linewidth = 0.5) # Add this line
     )
 )
@@ -169,7 +172,7 @@ life_cycle <- readRDS("updated_life_cycle_nov24.rds")
 
 #open wind speed annotated data from L04a_env_annotation.r
 #filter out points before deployment
-wind_speed <- readRDS("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/data/all_gps_apr15_24_wind.rds") %>% 
+wind_speed <- readRDS("/home/mahle68/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/data/all_gps_apr15_24_wind.rds") %>% 
   filter(!(location_lat == 0 & location_long == 0)) %>% 
   mutate(unique_date = as.Date(timestamp)) %>% 
   full_join(life_cycle %>% select(individual_local_identifier, deployment_dt_utc, first_exploration, migration_start, migration_end), by = "individual_local_identifier") %>% 
@@ -196,7 +199,7 @@ x11(height = 5.5, width = 2.3)
 (wsp <- ggplot(wind_speed, aes(x = wind_speed, y = lat_zone)) +
     #geom_jitter(height = 0.2, width = 0, alpha = 0.1, size = 0.2, color = "black") + 
     geom_violin(trim = T, alpha = 0.7, color = "black", linewidth = 0.2) + 
-    geom_boxplot(width = 0.1, outliers = F, color = "black", linewidth = 0.2, fill = "white")+
+    geom_boxplot(width = 0.1, outliers = T, color = "black", linewidth = 0.2, fill = "white", alpha = 0.1, outlier.size = 0.2)+
     geom_vline(xintercept = 0, linetype = "dashed", color = "gray75", linewidth = 0.5) +
     #annotate("text", x = 0, y = 20.1, label = expression("Hourly wind speed (m s"^-1*")"), 
     #         size = 3.5, hjust = 0, color = "black") +
@@ -204,11 +207,12 @@ x11(height = 5.5, width = 2.3)
     #ggtitle(expression("Hourly wind speed (m s"^-1*")")) + #the superscript will make it difficult to line up the panels
     ggtitle("Hourly wind speed (m/s)") +
     theme_void() +
-    theme(plot.margin = unit(c(.1, .5, .4, .5), "lines"),
+    theme(plot.margin = unit(c(.1, 0, .4, .5), "lines"),
           text = element_text(size = 9),
           axis.line.x = element_line(), 
           axis.ticks.x = element_line(), 
           axis.text.x = element_text(margin = margin(t = 1)),
+          plot.title = element_text(size = 10),
           panel.border = element_rect(color = "black", fill = NA, linewidth = 0.5) # Add this line
     )
 )
@@ -247,11 +251,12 @@ x11(height = 5.5, width = 2.3)
     #xlim(-90, 90) +
     scale_y_discrete(expand = expansion(add = c(8.5, 1.5))) +  # Add space above and below. to match the lat zones of the map... place the violins in between the two lat lines
     theme_void() +
-    theme(plot.margin = unit(c(.1, .5, .4, .5), "lines"),
+    theme(plot.margin = unit(c(.1, 0, .4, .5), "lines"),
           text = element_text(size = 9),
           axis.line.x = element_line(), 
           axis.ticks.x = element_line(), 
           axis.text.x = element_text(margin = margin(t = 1)),
+          plot.title = element_text(size = 10),
           panel.border = element_rect(color = "black", fill = NA, linewidth = 0.5) # Add this line
     )
 )
@@ -291,11 +296,12 @@ x11(height = 5.5, width = 2.3)
     #xlim(-90, 90) +
     scale_y_discrete(expand = expansion(add = c(8.5, 1.5))) +  # Add space above and below. to match the lat zones of the map... place the violins in between the two lat lines
     theme_void() +
-    theme(plot.margin = unit(c(.1, .5, .4, .5), "lines"),
+    theme(plot.margin = unit(c(.1, 0, .4, .5), "lines"),
           text = element_text(size = 9),
           axis.line.x = element_line(), 
           axis.ticks.x = element_line(), 
           axis.text.x = element_text(margin = margin(t = 1)),
+          plot.title = element_text(size = 10),
           panel.border = element_rect(color = "black", fill = NA, linewidth = 0.5) # Add this line
     )
 )
@@ -316,11 +322,12 @@ x11(height = 5.5, width = 2.3)
     #xlim(-90, 90) +
     scale_y_discrete(expand = expansion(add = c(8.5, 1.5))) +  # Add space above and below. to match the lat zones of the map... place the violins in between the two lat lines
     theme_void() +
-    theme(plot.margin = unit(c(.1, .5, .4, .5), "lines"),
+    theme(plot.margin = unit(c(.1, 0, .4, .5), "lines"),
           text = element_text(size = 9),
           axis.line.x = element_line(), 
           axis.ticks.x = element_line(), 
           axis.text.x = element_text(margin = margin(t = 1)),
+          plot.title = element_text(size = 10),
           panel.border = element_rect(color = "black", fill = NA, linewidth = 0.5) # Add this line
     )
 )
@@ -341,16 +348,32 @@ x11(height = 5.5, width = 2.3)
     #xlim(-90, 90) +
     scale_y_discrete(expand = expansion(add = c(8.5, 1.5))) +  # Add space above and below. to match the lat zones of the map... place the violins in between the two lat lines
     theme_void() +
-    theme(plot.margin = unit(c(.1, .5, .4, .5), "lines"),
+    theme(plot.margin = unit(c(.1, 0, .4, .5), "lines"), #(t, r, b, l)
           text = element_text(size = 9),
           axis.line.x = element_line(), 
           axis.ticks.x = element_line(), 
           axis.text.x = element_text(margin = margin(t = 1)),
+          plot.title = element_text(size = 10),
           panel.border = element_rect(color = "black", fill = NA, linewidth = 0.5) # Add this line
     )
 )
 
 ggsave(plot = pitch, filename = "/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/paper_prep/MS2_laterality/figures/pitch_panel.png", 
        device = "png", width = 2.3, height = 5.5)
+
+
+
+#--------------------------------------------------------------------
+# STEP 6 put all together          ----------------------------------
+#--------------------------------------------------------------------
+
+
+# Arrange the plots in one row
+X11(height = 4, width = 9)
+grid.arrange(grobs = list(flyway_map, bank, wsp, distance, vedba, yaw, pitch), nrow = 1,
+             widths = c(0.22, 0.13, 0.13, 0.13, 0.13, 0.13, 0.13))
+
+
+
 
 

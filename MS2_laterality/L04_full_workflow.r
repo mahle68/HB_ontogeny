@@ -21,8 +21,9 @@ library(corrr)
 library(gridExtra)
 library(patchwork)
 library(rptR)
+library(xtable) #for exporting latex tables
 
-setwd("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/R_files/")
+setwd("/home/mahle68/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/R_files/")
 
 getmode <- function(v) {
   uniqv <- unique(v)
@@ -466,7 +467,9 @@ data <- circling_data %>%
 data$life_stage <- factor(data$life_stage, levels = c("post-fledging", "migration", "wintering"))
 
 
-saveRDS(data, file = "thinned_laterality_for_modeling_w_new_data4.rds")
+#saveRDS(data, file = "thinned_laterality_for_modeling_w_new_data4.rds")
+
+data <- readRDS("thinned_laterality_for_modeling_w_new_data4.rds")
 
 m_inla <- inla(laterality_bi ~ 1 + mean_pitch_mean_z * abs_cum_yaw_z * wind_speed_z + 
                  f(individual_local_identifier, mean_pitch_mean_z, model = "iid") +  
@@ -520,11 +523,11 @@ levels(graph$Factor) <- VarNames
 #graph$Factor_n <- as.numeric(graph$Factor)
 
 #plot the coefficients
-X11(width = 7, height = 3)
+X11(width = 3.2, height = 2)
 (coefs <- ggplot(graph, aes(x = Estimate, y = Factor)) +
     geom_vline(xintercept = 0, linetype="dashed", 
                color = "gray75", linewidth = 0.5) +
-    geom_point(color = "#0d0887", size = 2)  +
+    geom_point(color = "#0d0887", size = 1.5)  +
     labs(x = "Estimate", y = "") +
     scale_y_discrete(labels = rev(c("Intercept", "Average pitch", "Absolute cumulative yaw",
                                     "Wind speed", "Average pitch: Absolute cumulative yaw", "Average pitch: Wind speed",
@@ -532,15 +535,83 @@ X11(width = 7, height = 3)
     geom_linerange(aes(xmin = Lower, xmax = Upper),color = "#0d0887", linewidth = 0.5) +
     ggtitle("a") +
     theme_classic() +
-    theme(text = element_text(size = 11),
-          legend.text = element_text(size = 9),
-          legend.title = element_text(size = 10),
+    theme(plot.margin = margin(0, 0, 0, 0, "pt"), #top, right, bottom, left
+          text = element_text(size = 8),
+          legend.text = element_text(size = 8),
+          legend.title = element_text(size = 8),
           panel.grid.minor = element_line(color = "white"),
-          axis.title.x = element_text(margin = margin(t = 5))) #increase distance between x-axis values and title
+          plot.title = element_text(face = "bold"), # make title bold
+          axis.title.x = element_text(margin = margin(t = 2))) #increase distance between x-axis values and title
 )
 
 ggsave(plot = coefs, filename = "/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/paper_prep/MS2_laterality/figures/difficulty_model_ws_coeffs_2min.pdf", 
        device = "pdf", width = 7, height = 4, dpi = 600)
+
+
+#### plot the smooth term -----------------------------------------------------------------------------
+
+# average start and end of migration... to add to the plot
+population_migr_period <- readRDS("thinned_laterality_for_modeling4.rds") %>% 
+  filter(life_stage == "migration") %>% 
+  group_by(individual_local_identifier) %>% 
+  arrange(start_timestamp, .by_group = T) %>% 
+  summarize(migration_start = min(days_since_tagging),
+            migration_end = max(days_since_tagging)) %>% 
+  ungroup() %>% 
+  summarize(avg_migration_start = mean(migration_start) %>% round(), 
+            avg_migration_end = mean(migration_end) %>% round()) %>% 
+  rename(xmin = avg_migration_start,
+         xmax = avg_migration_end) %>% 
+  mutate(ymin = -0.35,
+         ymax = 0.48) %>% #format in case I want a shaded rectangle for the migration period.
+  as.data.frame()
+
+
+
+# Extract the summary of the smooth term 
+smooth_effects <- m_inla$summary.random$age_group %>% 
+  #back transform the age values
+  mutate(age = ID * attr(data[,colnames(data) == "days_since_tagging_z"],'scaled:scale') +
+           attr(data[,colnames(data) == "days_since_tagging_z"],'scaled:center') )
+
+# Plot the smooth term....
+X11(width = 3.42, height = 3)
+(s <- ggplot(smooth_effects, aes(x = age, y = mean)) +
+    #geom_rect(data = population_migr_period, aes(xmin = xmin, xmax = xmax, ymin = ymin, ymax = ymax), 
+    #          fill="black", alpha=0.1, inherit.aes = FALSE) + #add migration period
+    geom_line(color = "#0d0887", linewidth = 0.4) +
+    geom_ribbon(aes(ymin = `0.025quant`, ymax = `0.975quant`), fill = "#0d0887", alpha = 0.12) +
+    geom_hline(yintercept = 0, linetype="dashed", 
+               color = "gray75", linewidth = 0.5) +
+    geom_vline(xintercept = c(population_migr_period$xmin, population_migr_period$xmax),
+               linetype = "dotted",  color = "black", linewidth = 0.5, show.legend = TRUE) +
+    labs(y = "Effect Size", x = "Days since tagging") +
+    ggtitle("b") +
+    ylim(-0.35, 0.48) +
+    theme_classic() +
+    theme(plot.margin = margin(0, 0, 0, 0, "pt"), #top, right, bottom, left
+          text = element_text(size = 8),
+          legend.text = element_text(size = 8),
+          legend.title = element_text(size = 8),
+          plot.title = element_text(face = "bold"), # make title bold
+          panel.grid.minor = element_line(color = "white"),
+          axis.title.x = element_text(margin = margin(t = 2)))
+)
+
+
+#combine the two plots for the linear and the non-linear terms
+#X11(width = 9, height = 3)
+#model_output_p <- grid.arrange(coefs, s, nrow = 1, widths = c(0.6, 0.4))
+
+#ggsave(plot = model_output_p, filename = "/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/paper_prep/MS2_laterality/figures/difficulty_model_ws_output_2min.pdf", 
+#       device = "pdf", width = 9, height = 3, dpi = 600)
+
+#combine the two plots to make the multi-panel plot for all models
+X11(width = 6.7, height = 2)
+model_output_p <- grid.arrange(coefs, s, nrow = 1, widths = c(0.6, 0.4))
+
+ggsave(plot = model_output_p, filename = "/home/mahle68/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/paper_prep/MS2_laterality/figures/difficulty_model_multi_panel.pdf", 
+       device = "pdf", width = 6.7, height = 2, dpi = 600)
 
 #### ind_specific coefficients plot -----------------------------------------------------------------------------
 
@@ -616,11 +687,11 @@ X11(width = 7, height = 8)
     scale_y_discrete(labels = levels(three_vars$ID)) +
     labs(x = "Estimate", y = "Individual ID") +
     theme_classic() +
-    theme(text = element_text(size = 11),
-          legend.text = element_text(size = 9),
-          legend.title = element_text(size = 10),
+    theme(text = element_text(size = 8),
+          legend.text = element_text(size = 8),
+          legend.title = element_text(size = 8),
           panel.grid.minor = element_line(color = "white"),
-          axis.title.x = element_text(margin = margin(t = 5))) + #increase distance between x-axis values and title
+          axis.title.x = element_text(margin = margin(t = 2))) + #increase distance between x-axis values and title
     facet_wrap(~ variable, scales = "free_x", labeller = as_labeller(c(
       "mean_pitch_mean_z" = "Average pitch",
       "abs_cum_yaw_z" = "Absolute cumulative yaw",
@@ -630,63 +701,6 @@ X11(width = 7, height = 8)
 
 ggsave(plot = coefs_inds, filename = "/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/paper_prep/MS2_laterality/figures/difficulty_model_ws_coeffs_inds_2min_plasma.pdf", 
        device = "pdf", width = 7, height = 8, dpi = 600)
-
-
-#### plot the smooth term -----------------------------------------------------------------------------
-
-# average start and end of migration... to add to the plot
-population_migr_period <- readRDS("thinned_laterality_for_modeling4.rds") %>% 
-  filter(life_stage == "migration") %>% 
-  group_by(individual_local_identifier) %>% 
-  arrange(start_timestamp, .by_group = T) %>% 
-  summarize(migration_start = min(days_since_tagging),
-            migration_end = max(days_since_tagging)) %>% 
-  ungroup() %>% 
-  summarize(avg_migration_start = mean(migration_start) %>% round(), 
-            avg_migration_end = mean(migration_end) %>% round()) %>% 
-  rename(xmin = avg_migration_start,
-         xmax = avg_migration_end) %>% 
-  mutate(ymin = -0.35,
-         ymax = 0.48) %>% #format in case I want a shaded rectangle for the migration period.
-  as.data.frame()
-
-
-
-# Extract the summary of the smooth term 
-smooth_effects <- m_inla$summary.random$age_group %>% 
-  #back transform the age values
-  mutate(age = ID * attr(data[,colnames(data) == "days_since_tagging_z"],'scaled:scale') +
-           attr(data[,colnames(data) == "days_since_tagging_z"],'scaled:center') )
-
-# Plot the smooth term....
-X11(width = 3.42, height = 3)
-(s <- ggplot(smooth_effects, aes(x = age, y = mean)) +
-    #geom_rect(data = population_migr_period, aes(xmin = xmin, xmax = xmax, ymin = ymin, ymax = ymax), 
-    #          fill="black", alpha=0.1, inherit.aes = FALSE) + #add migration period
-    geom_line(color = "#0d0887", linewidth = 0.4) +
-    geom_ribbon(aes(ymin = `0.025quant`, ymax = `0.975quant`), fill = "#0d0887", alpha = 0.12) +
-    geom_hline(yintercept = 0, linetype="dashed", 
-               color = "gray75", linewidth = 0.5) +
-    geom_vline(xintercept = c(population_migr_period$xmin, population_migr_period$xmax),
-               linetype = "dotted",  color = "black", linewidth = 0.5, show.legend = TRUE) +
-    labs(y = "Effect Size", x = "Days since tagging") +
-    ggtitle("b") +
-    ylim(-0.35, 0.48) +
-    theme_classic() +
-    theme(text = element_text(size = 11),
-          legend.text = element_text(size = 9),
-          legend.title = element_text(size = 10),
-          panel.grid.minor = element_line(color = "white"),
-          axis.title.x = element_text(margin = margin(t = 5)))
-)
-
-
-#combine the two plots for the linear and the non-linear terms
-X11(width = 9, height = 3)
-model_output_p <- grid.arrange(coefs, s, nrow = 1, widths = c(0.6, 0.4))
-
-ggsave(plot = model_output_p, filename = "/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/paper_prep/MS2_laterality/figures/difficulty_model_ws_output_2min.pdf", 
-       device = "pdf", width = 9, height = 3, dpi = 600)
 
 
 #### plot the interaction terms -----------------------------------------------------------------------------
@@ -705,32 +719,39 @@ preds <- data.frame(yaw = data[na_rows,"abs_cum_yaw"],
   rename(preds = focal_mean)
 
 #plot
-#X11(width = 7, height = 2)
-pred_py <- preds %>% 
-  ggplot() +
-  geom_tile(aes(x = x, y = y, fill = preds)) +
-  scale_fill_gradientn(#colors = c("#440154FF", "#39568CFF" ,"#20A387FF", "#83e22b", "#FDE725FF"),
-    colors = c("#0d0887", "#7e03a8" ,"#cc4778", "#f89540", "#f0f921"),
-    values = c(0, 0.5, 0.6, 0.7, 1),
-    limits = c(0, 1),
-    na.value = "white",
-    name = "Probability of Laterality") +
-  guides(fill = guide_colourbar(title.vjust = .95)) + # the legend title needs to move up a bit
-  labs(x = "Absolute cumulative yaw", y = "Average pitch") +
-  ggtitle("a") +
-  theme_classic() +
-  theme(plot.margin = margin(0, 15, 0, 0, "pt"),
-        text = element_text(size = 11),
-        legend.direction="horizontal",
-        legend.position = "bottom",
-        legend.key.width=unit(.7,"cm"),
-        legend.key.height=unit(.25,"cm"),
-        legend.text = element_text(size = 9),
-        legend.title = element_text(size = 10),
-        panel.grid.minor = element_line(color = "white"),
-        axis.title.x = element_text(margin = margin(t = 5))) + # increase distance between x-axis values and title
-  scale_x_continuous(expand = c(0, 0)) + #remove space between the raster and the axis
-  scale_y_continuous(expand = c(0, 0))
+X11(width = 7, height = 2)
+(pred_py <- preds %>% 
+    ggplot() +
+    geom_tile(aes(x = x, y = y, fill = preds)) +
+    scale_fill_gradientn(#colors = c("#440154FF", "#39568CFF" ,"#20A387FF", "#83e22b", "#FDE725FF"),
+      #colors = c("#0d0887", "#7e03a8" ,"#cc4778", "#f89540", "#f0f921"),
+      colors = c("#0d0887", "#7e03a8", "white" ,"#d5546e", "#fdae32", "#f0f921"),
+      values = c(0, 0.3, 0.5, 0.6, 0.7, 1),
+      limits = c(0, 1),
+      na.value = "white",
+      name = "Probability of laterality") +
+    guides(fill = guide_colourbar(title.vjust = .95)) + # the legend title needs to move up a bit
+    labs(x = "Absolute cumulative yaw", y = "Average pitch") +
+    ggtitle("c") +
+    theme_classic() +
+    theme(plot.margin = margin(0, 6, 0, 0, "pt"),
+          text = element_text(size = 8),
+          legend.direction="horizontal",
+          legend.position = "bottom",
+          legend.key.width=unit(.7,"cm"),
+          legend.key.height=unit(.15,"cm"),
+          legend.text = element_text(size = 8),
+          legend.title = element_text(size = 8),
+          plot.title = element_text(face = "bold"), # make title bold
+          panel.grid.minor = element_line(color = "white"),
+          axis.title.x = element_text(margin = margin(t = 2))) + # increase distance between x-axis values and title
+    scale_x_continuous(expand = c(0, 0)) + #remove space between the raster and the axis
+    scale_y_continuous(expand = c(0, 0))
+)
+
+#ggsave(plot = pred_py, filename = "/home/mahle68/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/paper_prep/MS2_laterality/figures/yaw_pitch.png", 
+#       device = "png", width = 7, height = 2.1, dpi = 600)
+
 
 
 ## wind:yaw----------------------------------------------------------------
@@ -751,27 +772,32 @@ preds <- data.frame(yaw = data[na_rows,"abs_cum_yaw"],
 pred_wy <- preds %>% 
   ggplot() +
   geom_tile(aes(x = x, y = y, fill = preds)) +
-  scale_fill_gradientn(colors = c("#0d0887", "#7e03a8" ,"#cc4778", "#f89540", "#f0f921"),
-                       values = c(0, 0.5, 0.6, 0.7, 1),
+  scale_fill_gradientn(colors = c("#0d0887", "#7e03a8", "white" ,"#d5546e", "#fdae32", "#f0f921"),
+                       values = c(0, 0.3, 0.5, 0.6, 0.7, 1),
                        limits = c(0, 1),
                        na.value = "white",
-                       name = "Probability of Laterality") +
+                       name = "Probability of laterality") +
   guides(fill = guide_colourbar(title.vjust = .95)) + # the legend title needs to move up a bit
   labs(x = "Absolute cumulative yaw", y = "Wind speed") +
-  ggtitle("b") +
+  ggtitle("d") +
   theme_classic() +
-  theme(plot.margin = margin(0, 15, 0, 0, "pt"),
-        text = element_text(size = 11),
+  theme(plot.margin = margin(0, 6, 0, 0, "pt"),
+        text = element_text(size = 8),
         legend.direction="horizontal",
         legend.position = "bottom",
         legend.key.width=unit(.7,"cm"),
-        legend.key.height=unit(.25,"cm"),
-        legend.text = element_text(size = 9),
-        legend.title = element_text(size = 10),
+        legend.key.height=unit(.15,"cm"),
+        legend.text = element_text(size = 8),
+        legend.title = element_text(size = 8),
+        plot.title = element_text(face = "bold"), # make title bold
         panel.grid.minor = element_line(color = "white"),
-        axis.title.x = element_text(margin = margin(t = 5))) + # increase distance between x-axis values and title
+        axis.title.x = element_text(margin = margin(t = 2))) + # increase distance between x-axis values and title
   scale_x_continuous(expand = c(0, 0)) + #remove space between the raster and the axis
   scale_y_continuous(expand = c(0, 0))
+
+#ggsave(plot = pred_wy, filename = "/home/mahle68/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/paper_prep/MS2_laterality/figures/wind_yaw.png", 
+#       device = "png", width = 7, height = 2.1, dpi = 600)
+
 
 
 ##wind:pitch----------------------------------------------------------------
@@ -789,40 +815,53 @@ preds <- data.frame(pitch = data[na_rows,"mean_pitch_mean"],
   rename(preds = focal_mean)
 
 #plot
-#X11(width = 7, height = 2)
+#X11(width = 2.23, height = 1.67)
 pred_wp <- preds %>% 
   ggplot() +
   geom_tile(aes(x = x, y = y, fill = preds)) +
-  scale_fill_gradientn(colors = c("#0d0887", "#7e03a8" ,"#cc4778", "#f89540", "#f0f921"),
-                       values = c(0, 0.5, 0.6, 0.7, 1),
+  scale_fill_gradientn(colors = c("#0d0887", "#7e03a8", "white" ,"#d5546e", "#fdae32", "#f0f921"),
+                       values = c(0, 0.3, 0.5, 0.6, 0.7, 1),
                        limits = c(0, 1),
                        na.value = "white",
-                       name = "Probability of Laterality") +
+                       name = "Probability of laterality") +
   guides(fill = guide_colourbar(title.vjust = .95)) + # the legend title needs to move up a bit
   labs(x = "Average pitch", y = "Wind speed") +
-  ggtitle("c") +
+  ggtitle("e") +
   theme_classic() +
-  theme(plot.margin = margin(0, 15, 0, 0, "pt"),
-        text = element_text(size = 11),
+  theme(plot.margin = margin(0, 0, 0, 0, "pt"),
+        text = element_text(size = 8),
         legend.direction="horizontal",
         legend.position = "bottom",
         legend.key.width=unit(.7,"cm"),
-        legend.key.height=unit(.25,"cm"),
-        legend.text = element_text(size = 9),
-        legend.title = element_text(size = 10),
+        legend.key.height=unit(.15,"cm"),
+        legend.text = element_text(size = 8),
+        legend.title = element_text(size = 8),
+        plot.title = element_text(face = "bold"), # make title bold
         panel.grid.minor = element_line(color = "white"),
-        axis.title.x = element_text(margin = margin(t = 5))) + # increase distance between x-axis values and title
+        axis.title.x = element_text(margin = margin(t = 2))) + # increase distance between x-axis values and title
   scale_x_continuous(expand = c(0, 0)) + #remove space between the raster and the axis
   scale_y_continuous(expand = c(0, 0))
 
+#ggsave(plot = pred_wp, filename = "/home/mahle68/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/paper_prep/MS2_laterality/figures/wind_pitch.png", 
+#       device = "png", width = 7, height = 2.1, dpi = 600)
 
-#combine the three plots for the coefficients and the interaction term--------------
-X11(width = 4.5, height = 6.5)
+
+
+#combine the three plots for the coefficients and the interaction term-------------- VERTICAL
+#X11(width = 4.5, height = 6.5)
+#combined <- pred_py + pred_wy + pred_wp & theme(legend.position = "bottom")
+#(p <- combined + plot_layout(guides = "collect", nrow = 3))
+
+#ggsave(plot = p, filename = "/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/paper_prep/MS2_laterality/figures/difficulty_model_ws_interactions_2min.pdf", 
+#       device = "pdf", width = 4.5, height = 6.5, dpi = 600)
+
+#combine the three plots. horizontal
+X11(width = 6.7, height = 2)
 combined <- pred_py + pred_wy + pred_wp & theme(legend.position = "bottom")
-(p <- combined + plot_layout(guides = "collect", nrow = 3))
+(p <- combined + plot_layout(guides = "collect", nrow = 1))
 
-ggsave(plot = p, filename = "/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/paper_prep/MS2_laterality/figures/difficulty_model_ws_interactions_2min.pdf", 
-       device = "pdf", width = 4.5, height = 6.5, dpi = 600)
+ggsave(plot = p, filename = "/home/mahle68/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/paper_prep/MS2_laterality/figures/interactions_multi_panel.pdf", 
+       device = "pdf", width = 6.7, height = 2, dpi = 600)
 
 
 #-----------------------------------------------------------------------------------------------------------------------
@@ -918,29 +957,33 @@ migr_daily <- readRDS("data_migration_performance_models_2min_daily.rds") %>%
 migr_daily[which(migr_daily$daily_max_vert_speed > 10), "daily_max_vert_speed"] <- NA
 
 #z-transform the variables
-data <- migr_daily %>% 
+data_m <- migr_daily %>% 
   #make sure to do all the filtering before scaling the variables!!!!
   mutate(across(contains("daily"), ~scale(.), .names = "{.col}_z")) %>%
   as.data.frame()
 
 #check for autocorrelation
-data %>% 
+data_m %>% 
   dplyr::select(ends_with("_z")) %>% 
   correlate() %>% 
   corrr::stretch() %>% 
   filter(abs(r) > 0.5) #correlated: mean and max wind, max cum yaw and mean cum yaw, daily distance an average speed, mean vedba and IQR vedba; max and avg altitude;
-                       # sd of vertical speed with avg altitude (0.57) and max altitude (0.64)
+# sd of vertical speed with avg altitude (0.57) and max altitude (0.64)
 
 #model: separately for daily_mean_vedba, daily_max_altitude, daily_distance, daily_mean_cum_yaw, daily_mean_mean_pitch, daily_max_altitude
 #vertical speed doesnt show a pattern. Omit because it is also unnecessary to have to explain the methodology.
 
 response_vars <- c( "daily_distance", "daily_max_altitude",
                     "daily_mean_vedba", "daily_mean_cum_yaw", 
-                     "daily_mean_mean_pitch")
+                    "daily_mean_mean_pitch")
 
-response_names <- c("Daily distance (km)", "Maximum flight altitude (m)",
-                    "Average VeDBA (g)", "Average cumulative yaw (degrees)", 
-                     "Average pitch (degrees)")
+response_names <- c(
+  expression(atop(bold("f") * phantom("                          "), "Daily distance (km)")),
+  expression(atop(bold("g") * phantom("                             "), "Max flight altitude (m)")),
+  expression(atop(bold("h") * phantom("                   "), "Avg VeDBA (g)")), 
+  expression(atop(bold("i") * phantom("                                   "), "Avg cumulative yaw (deg)")), 
+  expression(atop(bold("j") * phantom("                   "), "Avg pitch (deg)"))
+)
 
 plots_ls <- lapply(1:length(response_vars), function(response){
   
@@ -949,7 +992,7 @@ plots_ls <- lapply(1:length(response_vars), function(response){
   
   #don't include ind ID as a random intercept. some individuals don't have all levels of laterality
   m_inla <- inla(formula,
-                 data = data,
+                 data = data_m,
                  control.compute = list(cpo = TRUE),
                  control.predictor = list(link = 1, compute = TRUE)) #compute=t means that NA values will be predicted
   
@@ -971,32 +1014,49 @@ plots_ls <- lapply(1:length(response_vars), function(response){
   graph$Factor <- factor(graph$Factor, levels = VarOrder)
   levels(graph$Factor) <- VarNames
   
-  #graph$Factor_n <- as.numeric(graph$Factor)
+  #export the output as a latex table -----------
+  # Convert to LaTeX table
+  latex_table <- xtable(graph)
   
-  #plot the coefficients
+  # Specify the file path for each response variable
+  file_path <- paste0("/home/mahle68/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/paper_prep/MS2_laterality/tables/latex_table_", response_vars[response], ".txt")
+  
+  # Open a connection to the file
+  sink(file_path)
+  
+  # Print the LaTeX code to the file
+  print(latex_table, type = "latex", include.rownames = FALSE)
+  
+  # Close the connection to the file
+  sink()
+  
+  #plot the coefficients -----------
+  
+  #remove intercept for better visualization. 
+  graph <- graph[-1,]
+  
   #X11(width = 4.5, height = 1.6)
   ggplot(graph, aes(x = Estimate, y = Factor)) +
-      geom_vline(xintercept = 0, linetype="dashed", 
-                 color = "gray75", linewidth = 0.5) +
-      geom_point(color = "#0d0887", size = 2)  +
-      labs(x = "Estimate", y = "") +
-      scale_y_discrete(labels = rev(c("Intercept", "Maximum wind speed", "Laterality"))) +
-      geom_linerange(aes(xmin = Lower, xmax = Upper),color = "#0d0887", linewidth = 0.5) +
-      ggtitle(response_names[response]) +
-      theme_classic() +
-      theme(plot.margin = margin(0, 0, 10, 0, "pt"),
-            text = element_text(size = 9),
-            legend.text = element_text(size = 9),
-            legend.title = element_text(size = 10),
-            panel.grid.minor = element_line(color = "white"),
-            axis.title.x = element_text(margin = margin(t = 5))) #increase distance between x-axis values and title
+    geom_vline(xintercept = 0, linetype="dashed", 
+               color = "gray75", linewidth = 0.5) +
+    geom_point(color = "#0d0887", size = 1.5)  +
+    labs(x = if (response == 5) "Estimate" else "", 
+         y = "") +
+    scale_y_discrete(labels = if (response %in% c(1,4)) rev(c("Intercept", "Max. wind speed", "Laterality")) else c("", "")) + # Only add labels for first and fourth plot
+    #scale_y_discrete(labels = rev(c("Intercept", "Max. wind speed", "Laterality"))) +
+    geom_linerange(aes(xmin = Lower, xmax = Upper),color = "#0d0887", linewidth = 0.5) +
+    ggtitle(response_names[response]) +
+    theme_classic() +
+    theme(plot.margin = margin(0, 0, 0, 0, "pt"),
+          text = element_text(size = 8),
+          panel.grid.minor = element_line(color = "white"),
+          axis.title.x = element_text(margin = margin(t = 2))) #increase distance between x-axis values and title
 })
 
 #put all plots together
-X11(width = 4.3, height = 7)
+X11(width = 6.7, height = 2.5)
 combined <- reduce(plots_ls[1:5], `+`)
-(p <- combined + plot_layout(axis_titles = "collect", ncol = 1))
+(p <- combined + plot_layout(ncol = 3))
 
-ggsave(plot = p, filename = "/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/paper_prep/MS2_laterality/figures/migration_model_coeffs_bi.pdf", 
-                                  device = "pdf", width = 4.3, height = 7, dpi = 600)
- 
+ggsave(plot = p, filename = "/home/mahle68/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/paper_prep/MS2_laterality/figures/migration_models_multi_panel.pdf", 
+       device = "pdf", width = 6.7, height = 2.5, dpi = 600)
