@@ -22,6 +22,7 @@ library(gridExtra)
 library(patchwork)
 library(rptR)
 library(xtable) #for exporting latex tables
+library(ggh4x) # devtools::install_github("teunbrand/ggh4x") #allows modifying colors of facets in ggplot
 
 setwd("/home/mahle68/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/R_files/")
 
@@ -278,37 +279,55 @@ day_LI <- filtered_w_LI %>%
   slice(1)
 
 #density distributions
+X11(height = 4.09, width = 4.3)
 (p <- ggplot(day_LI, aes(x = laterality_bank_day, y = individual_local_identifier, color = laterality_dir_stage, fill = laterality_dir_stage)) +
     stat_density_ridges(quantile_lines = TRUE, rel_min_height = 0.01, alpha = 0.5,
                         jittered_points = TRUE, 
-                        point_shape = "|", point_size = 1, point_alpha = 1, size = 0.2) + #Trailing tails can be cut off using the rel_min_height aesthetic.
+                        point_shape = "|", point_size = 1, point_alpha = 1, size = 0.2) +
     geom_vline(xintercept = 0, linetype = "dashed", color = "gray30", linewidth = 0.5) +
     scale_fill_manual(values = c("right_handed" =  "#0d0887", "ambidextrous" = "#fb9f3a", "left_handed" = "#9c179e"),
-                      labels = c("Right-handed \nLI = 0.25 to 1.0", 
-                                 "Ambidextrous \nLI = -0.25 to 0.25",
-                                 "Left-handed \nLI = -1.0 to -0.25")) +
+                      labels = c("Right", 
+                                 "No bias",
+                                 "Left")) +
     scale_color_manual(values = c("right_handed" =  "#0d0887", "ambidextrous" = "#fb9f3a", "left_handed" = "#9c179e"),
-                       labels = c("Right-handed \nLI = 0.25 to 1.0", 
-                                  "Ambidextrous \nLI = -0.25 to 0.25",
-                                  "Left-handed \nLI = -1.0 to -0.25")) +
-    scale_x_continuous(breaks = c(-1, 0, 1)) +  # Set x-axis labels to -1, 0, and 1
-    facet_wrap(vars(life_stage), labeller = labeller(life_stage = c(
-      "post-fledging" = "Post-fledging",
-      "migration" = "Migration",
-      "wintering" = "Wintering"
-    ))) +
+                       labels = c("Right", 
+                                  "No bias",
+                                  "Left")) +
+    scale_x_continuous(breaks = c(-1, 0, 1)) +
+    facet_wrap2(
+      vars(life_stage), nrow = 1, scales = "free_x",
+      strip = strip_themed(
+          background_x = list(element_rect(color = "#31688e"),
+                              element_rect(color = "#b5de2b"),
+                              element_rect(color = "#1f9e89")),
+        # text_x = list(
+        #   "post-fledging" = element_text(color = "#31688e"),
+        #   "migration" = element_text(color = "#b5de2b"),
+        #   "wintering" = element_text(color = "#1f9e89")
+      ),
+      labeller = labeller(life_stage = c(
+        "post-fledging" = "Post-fledging",
+        "migration" = "Migration",
+        "wintering" = "Wintering"
+      ))) +
     labs(x = "Laterality index",
          y = "Individual ID",
          fill = "Handedness",
          color = "Handedness") +
+    ggtitle("b") +
     theme_classic() +
-    theme(text = element_text(size = 11),
-          legend.text = element_text(size = 9),
-          legend.title = element_text(size = 10),
+    theme(plot.margin = margin(0, 0, 0, 0, "pt"),
+          text = element_text(size = 8),
+          legend.text = element_text(size = 8),
+          legend.title = element_text(size = 8),
+          plot.title = element_text(face = "bold"), # make title bold
           panel.grid.minor = element_line(color = "white"),
-          axis.title.x = element_text(margin = margin(t = 5)),
-          legend.key.spacing.y = unit(0.3, "cm")) # Adjust the spacing of legend items
+          axis.title.x = element_text(margin = margin(t = 2)),
+          legend.key.width=unit(.7,"cm"),
+          legend.key.height=unit(.15,"cm"),
+          legend.position = "bottom")
 )
+
 
 #this is NOT filtered for days since tagging!!
 ggsave(plot = p, filename = "/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/paper_prep/MS2_laterality/figures/ind_daily_LI_LS.jpg", 
