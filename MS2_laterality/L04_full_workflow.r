@@ -24,7 +24,7 @@ library(rptR)
 library(xtable) #for exporting latex tables
 library(ggh4x) # devtools::install_github("teunbrand/ggh4x") #allows modifying colors of facets in ggplot
 
-setwd("/home/mahle68/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/R_files/")
+setwd("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/R_files/")
 
 getmode <- function(v) {
   uniqv <- unique(v)
@@ -748,17 +748,17 @@ X11(width = 7, height = 2)
       values = c(0, 0.3, 0.5, 0.6, 0.7, 1),
       limits = c(0, 1),
       na.value = "white",
-      name = "Probability of laterality") +
-    guides(fill = guide_colourbar(title.vjust = .95)) + # the legend title needs to move up a bit
+      name = "Probability\n of laterality") +
+    guides(fill = guide_colourbar(title.vjust = 2.5)) + # the legend title needs to move up a bit
     labs(x = "Absolute cumulative yaw", y = "Average pitch") +
     ggtitle("c") +
     theme_classic() +
     theme(plot.margin = margin(0, 6, 0, 0, "pt"),
           text = element_text(size = 8),
-          legend.direction="horizontal",
-          legend.position = "bottom",
-          legend.key.width=unit(.7,"cm"),
-          legend.key.height=unit(.15,"cm"),
+          legend.direction="vertical",
+          legend.position = "right",
+          legend.key.width=unit(.2,"cm"),
+          legend.key.height=unit(.4,"cm"),
           legend.text = element_text(size = 8),
           legend.title = element_text(size = 8),
           plot.title = element_text(face = "bold"), # make title bold
@@ -795,17 +795,17 @@ pred_wy <- preds %>%
                        values = c(0, 0.3, 0.5, 0.6, 0.7, 1),
                        limits = c(0, 1),
                        na.value = "white",
-                       name = "Probability of laterality") +
-  guides(fill = guide_colourbar(title.vjust = .95)) + # the legend title needs to move up a bit
+                       name = "Probability\n of laterality") +
+  guides(fill = guide_colourbar(title.vjust = 2.5)) + # the legend title needs to move up a bit
   labs(x = "Absolute cumulative yaw", y = "Wind speed") +
   ggtitle("d") +
   theme_classic() +
   theme(plot.margin = margin(0, 6, 0, 0, "pt"),
         text = element_text(size = 8),
-        legend.direction="horizontal",
-        legend.position = "bottom",
-        legend.key.width=unit(.7,"cm"),
-        legend.key.height=unit(.15,"cm"),
+        legend.direction="vertical",
+        legend.position = "right",
+        legend.key.width=unit(.2,"cm"),
+        legend.key.height=unit(.4,"cm"),
         legend.text = element_text(size = 8),
         legend.title = element_text(size = 8),
         plot.title = element_text(face = "bold"), # make title bold
@@ -842,17 +842,17 @@ pred_wp <- preds %>%
                        values = c(0, 0.3, 0.5, 0.6, 0.7, 1),
                        limits = c(0, 1),
                        na.value = "white",
-                       name = "Probability of laterality") +
-  guides(fill = guide_colourbar(title.vjust = .95)) + # the legend title needs to move up a bit
+                       name = "Probability\n of laterality") +
+  guides(fill = guide_colourbar(title.vjust = 2.5)) + # the legend title needs to move up a bit
   labs(x = "Average pitch", y = "Wind speed") +
   ggtitle("e") +
   theme_classic() +
   theme(plot.margin = margin(0, 0, 0, 0, "pt"),
         text = element_text(size = 8),
-        legend.direction="horizontal",
-        legend.position = "bottom",
-        legend.key.width=unit(.7,"cm"),
-        legend.key.height=unit(.15,"cm"),
+        legend.direction="vertical",
+        legend.position = "right",
+        legend.key.width=unit(.2,"cm"),
+        legend.key.height=unit(.4,"cm"),
         legend.text = element_text(size = 8),
         legend.title = element_text(size = 8),
         plot.title = element_text(face = "bold"), # make title bold
@@ -876,10 +876,10 @@ pred_wp <- preds %>%
 
 #combine the three plots. horizontal
 X11(width = 6.7, height = 2)
-combined <- pred_py + pred_wy + pred_wp & theme(legend.position = "bottom")
+combined <- pred_py + pred_wy + pred_wp & theme(legend.position = "right")
 (p <- combined + plot_layout(guides = "collect", nrow = 1))
 
-ggsave(plot = p, filename = "/home/mahle68/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/paper_prep/MS2_laterality/figures/interactions_multi_panel.pdf", 
+ggsave(plot = p, filename = "/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/paper_prep/MS2_laterality/figures/interactions_multi_panel.pdf", 
        device = "pdf", width = 6.7, height = 2, dpi = 600)
 
 
@@ -997,11 +997,11 @@ response_vars <- c( "daily_distance", "daily_max_altitude",
                     "daily_mean_mean_pitch")
 
 response_names <- c(
-  expression(atop(bold("f") * phantom("                          "), "Daily distance (km)")),
-  expression(atop(bold("g") * phantom("                             "), "Max flight altitude (m)")),
-  expression(atop(bold("h") * phantom("                   "), "Avg VeDBA (g)")), 
-  expression(atop(bold("i") * phantom("                                   "), "Avg cumulative yaw (deg)")), 
-  expression(atop(bold("j") * phantom("                   "), "Avg pitch (deg)"))
+  expression(atop(bold("f") * phantom("                             "), "Daily distance (km)")),
+  expression(atop(bold("g") * phantom("                                  "), "Max flight altitude (m)")),
+  expression(atop(bold("h") * phantom("                        "), "Avg VeDBA (g)")), 
+  expression(atop(bold("i") * phantom("                                        "), "Avg cumulative yaw (deg)")), 
+  expression(atop(bold("j") * phantom("                        "), "Avg pitch (deg)"))
 )
 
 plots_ls <- lapply(1:length(response_vars), function(response){
@@ -1038,16 +1038,16 @@ plots_ls <- lapply(1:length(response_vars), function(response){
   latex_table <- xtable(graph)
   
   # Specify the file path for each response variable
-  file_path <- paste0("/home/mahle68/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/paper_prep/MS2_laterality/tables/latex_table_", response_vars[response], ".txt")
+ # file_path <- paste0("/home/mahle68/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/paper_prep/MS2_laterality/tables/latex_table_", response_vars[response], ".txt")
   
   # Open a connection to the file
-  sink(file_path)
+  #sink(file_path)
   
   # Print the LaTeX code to the file
-  print(latex_table, type = "latex", include.rownames = FALSE)
+  #print(latex_table, type = "latex", include.rownames = FALSE)
   
   # Close the connection to the file
-  sink()
+  #sink()
   
   #plot the coefficients -----------
   
@@ -1077,5 +1077,5 @@ X11(width = 6.7, height = 2.5)
 combined <- reduce(plots_ls[1:5], `+`)
 (p <- combined + plot_layout(ncol = 3))
 
-ggsave(plot = p, filename = "/home/mahle68/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/paper_prep/MS2_laterality/figures/migration_models_multi_panel.pdf", 
+ggsave(plot = p, filename = "/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/paper_prep/MS2_laterality/figures/migration_models_multi_panel.pdf", 
        device = "pdf", width = 6.7, height = 2.5, dpi = 600)
