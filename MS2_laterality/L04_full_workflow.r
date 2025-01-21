@@ -33,6 +33,41 @@ getmode <- function(v) {
 
 
 #---------------------------------------------------------------------------------
+## Step 0: Life cycle descriptive summmaries                                 #####
+#---------------------------------------------------------------------------------
+#to be reported in the paper
+
+#individuals with incomplete tracks
+
+incomplete <- c("D329_015", "D326_193", "D324_513", "D320_474", "D299_270", "D299_269", "D225_236")
+
+#life-cycle stages from L03a_tests_per_day.r
+life_cycle <- readRDS("updated_life_cycle_nov24.rds") %>% 
+  mutate(age_at_first_expl = (first_exploration - as.Date(deployment_dt_utc.x)) + 30,
+    in_natal = migration_start - first_exploration,
+         migr_dur = ifelse(individual_local_identifier %in% incomplete, NA, migration_end - migration_start)) %>% 
+  summarize(in_natal_avg = mean(in_natal, na.rm = T),
+            in_natal_min = min(in_natal, na.rm = T),
+            in_natal_max = max(in_natal, na.rm = T),
+            in_natal_sd = sd(in_natal, na.rm = T),
+            migr_dur_avg = min(migr_dur, na.rm = T),
+            migr_dur_min = mean(migr_dur, na.rm = T),
+            migr_dur_max = max(migr_dur, na.rm = T),
+            migr_dur_sd = sd(migr_dur, na.rm = T))
+
+#tracking duration
+#open data from step 4 below
+filtered_w_LI <- readRDS("thinned_laterality_w_gps_wind_all_filters.rds")
+
+mean(filtered_w_LI$days_since_tagging)
+sd(filtered_w_LI$days_since_tagging)
+IQR(filtered_w_LI$days_since_tagging)
+
+
+
+
+
+#---------------------------------------------------------------------------------
 ## Step 1: Data prep                                                         #####
 #---------------------------------------------------------------------------------
 
