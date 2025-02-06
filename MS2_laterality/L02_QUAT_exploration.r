@@ -22,7 +22,11 @@ birds_2023 <- c("D329_013", "D329_012", "D329_015", "D329_014", "D326_193", "D32
 #                             pattern = "rds", full.names = T)
 
 #open quat data- aggregated for every second, matched with gps-informed flight classification: prepared in 01b_imu_processing.r
-or_summaries_w_gps <- readRDS("matched_GPS_IMU/GPS_matched_or_w_summaries_8secIDs_Jul24.rds") %>% #this version also has the IDs assigned to 8-sec bursts.
+or_summaries_w_gps_1 <- readRDS("matched_GPS_IMU/GPS_matched_or_w_summaries_8secIDs_Jul24.rds") %>% #this version also has the IDs assigned to 8-sec bursts.
+  drop_na(individual_local_identifier)
+  
+#open data aggregated for every 8 seconds
+or_summaries_w_gp8 <- readRDS("matched_GPS_IMU/GPS_matched_or_w_summaries_8sec_Jul24.rds") %>% #this version also has the IDs assigned to 8-sec bursts.
   drop_na(individual_local_identifier)
 
 #-------------------------------------------------------------------------------------
@@ -31,18 +35,40 @@ or_summaries_w_gps <- readRDS("matched_GPS_IMU/GPS_matched_or_w_summaries_8secID
 #use overlapping GPS and Quat data to calculate this. requires matching gps and quat data (do it in 01b_imu_processing.r)
 
 #look at a sample individual from 2023
-smpl <- or_summaries_w_gps %>% 
+smpl_8 <- or_summaries_w_gp8 %>% 
   filter(individual_local_identifier == "D329_013" &
-  #         imu_burst_id %in% c(2672, 2674, 2676, 2677, 2678)
-  #  imu_burst_id %in% c(4927:5817))
-    imu_burst_id %in% c(2800:4000))
+           imu_burst_id %in% c(2672, 2674, 2676, 2677, 2678))
 
-smpl_burst_sf <- smpl %>% 
+smpl_8_sf <- smpl_8 %>% 
+  drop_na("start_location_lat_closest_gps") %>% 
+  st_as_sf(coords = c("start_location_long_closest_gps", "start_location_lat_closest_gps"), crs = wgs)
+
+smpl_1 <- or_summaries_w_gps_1 %>% 
+  filter(individual_local_identifier == "D329_013" &
+           imu_burst_id %in% c(2672, 2674, 2676, 2677, 2678))
+  #  imu_burst_id %in% c(4927:5817))
+  #  imu_burst_id %in% c(2800:4000))
+
+smpl_1_sf <- smpl_1 %>% 
   drop_na("location_lat_closest_gps") %>% 
   st_as_sf(coords = c("location_long_closest_gps", "location_lat_closest_gps"), crs = wgs)
 
-mapview(smpl_burst_sf , zcol = "flight_type_sm3")
-mapview(smpl_burst_sf , zcol = "cumulative_yaw", alpha = 0)
+mapview(smpl_1_sf , zcol = "cumulative_yaw")
+mapview(smpl_1_sf , zcol = "roll_mean")
+
+mapview(smpl_1_sf , color = "gray", alpha = 0) + mapview(smpl_8_sf , zcol = "cumulative_yaw_8sec", alpha = 0)
+
+#I want to add the 8-sec assignments to the 1-sec data:
+sample_complete <- smpl_1 %>% 
+  full_join(smpl_8 %>%  select(burst_id_8sec, cumulative_yaw_8sec, cumulative_roll_8sec, cumulative_pitch_8sec, mean_roll_mean, mean_pitch_mean))
+
+sample_sf <- sample_complete %>% 
+  drop_na("location_lat_closest_gps") %>% 
+  st_as_sf(coords = c("location_long_closest_gps", "location_lat_closest_gps"), crs = wgs)
+
+mapview(sample_sf , zcol = "cumulative_roll_8sec") #plot the one-point-per-second data, color based on the 8-sec assignment of mean roll
+mapview(sample_sf , zcol = "mean_roll_mean") #plot the one-point-per-second data, color based on the 8-sec assignment of mean roll
+
 
 
 one_burst <- smpl_burst_sf %>% 
