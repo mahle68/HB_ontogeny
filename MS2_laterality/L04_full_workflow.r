@@ -86,16 +86,18 @@ one_sec <- readRDS("matched_GPS_IMU/GPS_matched_or_w_summaries_8secIDs_Jul24.rds
 # calculate summaries of angles for each 8-sec burst
 (start_time <- Sys.time())
 eight_sec <- one_sec %>% 
-  #calculate bank angle. make sure to use roll and pitch in radians
+  #calculate bank angle. make sure to use roll and pitch in radians. summarize for each row: mean and sd
   mutate(
-    bank_angle_rad = map2_chr(
+    bank_angle_rad_mean = map2_dbl(
       roll, pitch,
-      ~ str_c(asin(sin(string_to_numeric(.x)) * cos(string_to_numeric(.y))), collapse = " ")
+      ~ mean(asin(sin(strings_to_numeric(.x)) * cos(strings_to_numeric(.y))))
     ),
-    bank_angle_deg = map_chr(
-      bank_angle_rad,
-      ~ str_c(string_to_numeric(.x) * 180 / pi, collapse = " ")
-    )
+    bank_angle_rad_sd = map2_dbl(
+      roll, pitch,
+      ~ sd(asin(sin(strings_to_numeric(.x)) * cos(strings_to_numeric(.y))))
+    ),
+    bank_angle_deg_mean = bank_angle_rad_mean * 180 / pi,
+    bank_angle_deg_sd = bank_angle_rad_sd * 180 / pi
   ) %>% 
   group_by(burst_id_8sec) %>% #this grouping variable has unique values for individuals and bursts. 
   arrange(timestamp, .by_group = T) %>% 
