@@ -26,7 +26,7 @@ or_summaries_w_gps_1 <- readRDS("matched_GPS_IMU/GPS_matched_or_w_summaries_8sec
   drop_na(individual_local_identifier)
   
 #open data aggregated for every 8 seconds
-or_summaries_w_gp8 <- readRDS("matched_GPS_IMU/GPS_matched_or_w_summaries_8sec_Jul24.rds") %>% #this version also has the IDs assigned to 8-sec bursts.
+or_summaries_w_gp8 <- readRDS("laterality_index_per_8sec_burst_days_since.rds") %>% #this version also has the IDs assigned to 8-sec bursts.
   drop_na(individual_local_identifier)
 
 #-------------------------------------------------------------------------------------
@@ -60,14 +60,17 @@ mapview(smpl_1_sf , color = "gray", alpha = 0) + mapview(smpl_8_sf , zcol = "cum
 
 #I want to add the 8-sec assignments to the 1-sec data:
 sample_complete <- smpl_1 %>% 
-  full_join(smpl_8 %>%  select(burst_id_8sec, cumulative_yaw_8sec, cumulative_roll_8sec, cumulative_pitch_8sec, mean_roll_mean, mean_pitch_mean))
+  full_join(smpl_8 %>%  select(burst_id_8sec, cumulative_yaw_8sec, cumulative_roll_8sec, cumulative_pitch_8sec, mean_roll_mean, mean_pitch_mean,
+                               laterality_bank))
 
 sample_sf <- sample_complete %>% 
   drop_na("location_lat_closest_gps") %>% 
   st_as_sf(coords = c("location_long_closest_gps", "location_lat_closest_gps"), crs = wgs)
 
+sample_sf$laterality_roll <- sample_sf$laterality_bank
+
 mapview(sample_sf , zcol = "cumulative_roll_8sec") #plot the one-point-per-second data, color based on the 8-sec assignment of mean roll
-mapview(sample_sf , zcol = "mean_roll_mean") #plot the one-point-per-second data, color based on the 8-sec assignment of mean roll
+mapview(sample_sf , zcol = "laterality_roll") #plot the one-point-per-second data, color based on the 8-sec assignment of mean roll
 
 
 

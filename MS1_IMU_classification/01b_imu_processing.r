@@ -13,7 +13,7 @@ library(circular)
 
 wgs <- st_crs("+proj=longlat +datum=WGS84 +no_defs")
 
-setwd("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/R_files/")
+setwd("/home/mahle68/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/R_files/")
 
 #source functions for wind direction
 source("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/lap_paper/AnEnvIPaper/data_prep/EnvironmentalData/airspeed_windsupport_crosswind.R")
@@ -22,7 +22,7 @@ source("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Proje
 
 #STEP 1: download all IMU data -------------------------------------------------
 
-creds <- movebank_store_credentials(username = "mahle68", rstudioapi::askForPassword())
+#creds <- movebank_store_credentials(username = "mahle68", rstudioapi::askForPassword())
 HB_id <- movebank_get_study_id("European Honey Buzzard_Finland")
 
 mag <- movebank_retrieve(study_id = 2201086728, sensor_type_id = "magnetometer", 

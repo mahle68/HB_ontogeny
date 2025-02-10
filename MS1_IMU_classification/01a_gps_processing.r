@@ -14,7 +14,7 @@ library(viridis)
 library(move2)
 
 wgs <- st_crs("+proj=longlat +datum=WGS84 +no_defs")
-setwd("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/")
+setwd("/home/mahle68/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/")
 
 #STEP 1: download gps data for all individuals (whole study) -----------------------------
 
@@ -302,59 +302,3 @@ Sys.time() - st_t # 8 hours for 31 individuals
 
 stopCluster(mycl)
 
-
-
-###############old stuff ###########
-#STEP 3: prepare for Movebank annotations -----------------------------
-#open all the annotated GPS files
-
-gps_seg <- list.files("R_files/gps_seg_apr24/", pattern = "bursts.rds", full.names = T) %>% #these are sf objects!!
-  map(readRDS) %>% 
-  bind_rows() %>% 
-  mutate(row_id = row_number(), #assign a row id to be able to cbind the annotated data with the original data later on
-         location_long = st_coordinates(.)[,1],
-         location_lat = st_coordinates(.)[,2]) %>% 
-  st_drop_geometry()
-
-#save the annotated dataset
-saveRDS(gps_seg, file = "R_files/all_gps_seg_Nov2023.rds")
-
-#Prepare for track annotation on Env-Data
-gps_mb <- gps_seg %>% 
-  mutate(timestamp = paste(as.character(timestamp),"000",sep = ".")) %>% 
-  rename("location-long" = location_long,
-         "location-lat" = location_lat) %>% 
-  group_by((row_number()-1) %/% (n()/6)) %>% #split into 6 groups, to keep the nrow of each group below 1 million 
-  nest %>% pull(data)
-
-lapply(c(1:6), function(x){
-  data <- gps_mb[[x]] %>% 
-    select("location-long","location-lat", "timestamp", "row_id") %>% #only keep the columns that env-data needs, and row-id to merge the annotations with the original data 
-    as.data.frame()
-  
-  write.csv(data, file = paste0("R_files/all_gps_seg_apr24_", x, ".csv"))
-})
-
-
-#STEP 4: fuse annotated w_star and the rest of the dataset -----------------------------
-
-#open full gps data
-gps_seg <- readRDS("R_files/all_gps_seg_Nov2023.rds")
-
-#bind all annotated data together
-gps_complete <- lapply(list.files("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/data/annotations_w_star", 
-                                 pattern = ".csv", recursive = T, full.names = T), read.csv) %>% 
-  bind_rows() %>% 
-  select(-c("X","timestamp", "location.lat", "location.long")) %>% 
-  full_join(gps_seg, by = "row_id")
-
-saveRDS(gps_complete, file = "R_files/all_gps_seg_ann_Nov2023.rds")
-
-
-############## explore why there are so many NA values for the 2023 birds
-birds_23 <- c("D329_012", "D329_013", "D329_014", "D329_015", "D326_193", "D326_192")
-
-gps <- readRDS("R_files/all_gps_seg_ann_Nov2023.rds")
-
-birds23 <- gps %>% 
-  filter(individual_local_identifier %in% birds_23)

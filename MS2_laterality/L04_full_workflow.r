@@ -24,7 +24,7 @@ library(rptR)
 library(xtable) #for exporting latex tables
 library(ggh4x) # devtools::install_github("teunbrand/ggh4x") #allows modifying colors of facets in ggplot
 
-setwd("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/R_files/")
+setwd("/home/mahle68/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/R_files/")
 
 getmode <- function(v) {
   uniqv <- unique(v)
@@ -1011,9 +1011,12 @@ migr_daily <- readRDS("data_migration_performance_models_2min_daily.rds") %>%
 migr_daily[which(migr_daily$daily_max_vert_speed > 10), "daily_max_vert_speed"] <- NA
 
 #z-transform the variables
-data_m <- migr_daily %>% 
+data_m <- migr_daily %>%
+  mutate(daily_abs_LI = abs(laterality_bank_day),
+         laterality_bi_ind = ifelse(laterality_dir_ind == "ambidextrous", "ambidextrous", "handed"),
+         laterality_bi_stage = ifelse(laterality_dir_stage == "ambidextrous", "ambidextrous", "handed")) %>% #because this is migration data only, there should be one assignment per individual
   #make sure to do all the filtering before scaling the variables!!!!
-  mutate(across(contains("daily"), ~scale(.), .names = "{.col}_z")) %>%
+  mutate(across(contains("daily") , ~scale(.), .names = "{.col}_z")) %>%
   as.data.frame()
 
 #check for autocorrelation
@@ -1042,7 +1045,8 @@ response_names <- c(
 plots_ls <- lapply(1:length(response_vars), function(response){
   
   #model
-  formula <- paste0(response_vars[response], " ~ 1 + daily_max_wind_z + laterality_bi_day") %>% formula()
+  #formula <- paste0(response_vars[response], " ~ 1 + daily_max_wind_z + laterality_bi_day") %>% formula()
+  formula <- paste0(response_vars[response], " ~ 1 + daily_max_wind_z + daily_abs_LI_z") %>% formula()
   
   #don't include ind ID as a random intercept. some individuals don't have all levels of laterality
   m_inla <- inla(formula,
@@ -1096,7 +1100,8 @@ plots_ls <- lapply(1:length(response_vars), function(response){
     geom_point(color = "#0d0887", size = 1.5)  +
     labs(x = if (response == 5) "Estimate" else "", 
          y = "") +
-    scale_y_discrete(labels = if (response %in% c(1,4)) rev(c("Intercept", "Max. wind speed", "Laterality")) else c("", "")) + # Only add labels for first and fourth plot
+    scale_y_discrete(labels = if (response %in% c(1,4)) rev(c("Intercept", "Max. wind speed", "Abs. Laterality Index")) else c("", "")) + 
+    #scale_y_discrete(labels = if (response %in% c(1,4)) rev(c("Intercept", "Max. wind speed", "Laterality")) else c("", "")) + # Only add labels for first and fourth plot
     #scale_y_discrete(labels = rev(c("Intercept", "Max. wind speed", "Laterality"))) +
     geom_linerange(aes(xmin = Lower, xmax = Upper),color = "#0d0887", linewidth = 0.5) +
     ggtitle(response_names[response]) +
@@ -1112,5 +1117,5 @@ X11(width = 6.7, height = 2.5)
 combined <- reduce(plots_ls[1:5], `+`)
 (p <- combined + plot_layout(ncol = 3))
 
-ggsave(plot = p, filename = "/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/paper_prep/MS2_laterality/figures/migration_models_multi_panel.pdf", 
+ggsave(plot = p, filename = "/home/mahle68/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/paper_prep/MS2_laterality/figures/migration_models_multi_panel_continuous.pdf", 
        device = "pdf", width = 6.7, height = 2.5, dpi = 600)
