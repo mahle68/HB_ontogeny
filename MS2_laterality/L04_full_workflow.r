@@ -24,7 +24,10 @@ library(rptR)
 library(xtable) #for exporting latex tables
 library(ggh4x) # devtools::install_github("teunbrand/ggh4x") #allows modifying colors of facets in ggplot
 
-setwd("/home/mahle68/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/R_files/")
+setwd("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/R_files/")
+
+#source the imu conversion functions
+source("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/HB_ontogeny/MS1_IMU_classification/00_imu_diy.r")
 
 getmode <- function(v) {
   uniqv <- unique(v)
@@ -33,7 +36,7 @@ getmode <- function(v) {
 
 
 #---------------------------------------------------------------------------------
-## Step 0: Life cycle descriptive summmaries                                 #####
+## Step 0: Life cycle descriptive summaries                                  #####
 #---------------------------------------------------------------------------------
 #to be reported in the paper
 
@@ -64,11 +67,65 @@ sd(filtered_w_LI$days_since_tagging)
 IQR(filtered_w_LI$days_since_tagging)
 
 
+#---------------------------------------------------------------------------------
+## Step 1: What are the values of yaw during straight flight (using GPS)     #####
+#---------------------------------------------------------------------------------
+
 
 
 
 #---------------------------------------------------------------------------------
-## Step 1: Data prep                                                         #####
+## Step 2: Data prep-summarize per 8-sec burst & calc bank angle             #####
+#---------------------------------------------------------------------------------
+
+#start with data that was summarized for each second in MS1_IMU_classification/01b_imu_processing.r
+#this is also already matched with GPS
+
+one_sec <- readRDS("matched_GPS_IMU/GPS_matched_or_w_summaries_8secIDs_Jul24.rds")
+
+# calculate summaries of angles for each 8-sec burst
+(start_time <- Sys.time())
+eight_sec <- one_sec %>% 
+  #calculate bank angle. make sure to use roll and pitch in radians
+  mutate(
+    bank_angle_rad = map2_chr(
+      roll, pitch,
+      ~ str_c(asin(sin(string_to_numeric(.x)) * cos(string_to_numeric(.y))), collapse = " ")
+    ),
+    bank_angle_deg = map_chr(
+      bank_angle_rad,
+      ~ str_c(string_to_numeric(.x) * 180 / pi, collapse = " ")
+    )
+  ) %>% 
+  group_by(burst_id_8sec) %>% #this grouping variable has unique values for individuals and bursts. 
+  arrange(timestamp, .by_group = T) %>% 
+  #aggregate summarized angles over 8 seconds
+  summarize(across(c(study_id, individual_taxon_canonical_name, individual_local_identifier, orientation_quaternions_sampling_frequency,
+                     tag_local_identifier, tag_id, imu_burst_id, burst_duration), ~head(.,1)),
+            across(c(yaw_sd, roll_sd, pitch_sd,
+                     yaw_mean, roll_mean, pitch_mean,
+                     yaw_min, roll_min, pitch_min,
+                     yaw_max, roll_max, pitch_max), 
+                   ~mean(., na.rm = T),
+                   .names = "mean_{.col}"), #rename the column, because these values are the mean of the sd, max, min values across the 8 seconds
+            across(c(cumulative_yaw, cumulative_roll, cumulative_pitch),
+                   ~sum(., na.rm = T),
+                   .names = "{.col}_8sec"),
+            across(c(timestamp, timestamp_closest_gps, location_lat_closest_gps, location_long_closest_gps, height_above_ellipsoid_closest_gps, ground_speed_closest_gps, heading_closest_gps), 
+                   ~head(.,1),
+                   .names = "start_{.col}"),
+            across(c(flight_type_sm2, flight_type_sm3, track_flight_seg_id),
+                   ~Mode(.), #make sure the Mode function is defined
+                   .names = "{.col}_Mode"),
+            end_timestamp = tail(timestamp,1),
+            .groups = "keep") %>% 
+  ungroup %>% 
+  as.data.frame()
+(Sys.time() - start_time) #17.3 minutes
+
+
+#---------------------------------------------------------------------------------
+## Step 3: Environmental annotation                                          #####
 #---------------------------------------------------------------------------------
 
 #### ----------------------- use the 8-sec data and calculate handedness for each 8 second burst
