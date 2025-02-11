@@ -66,16 +66,8 @@ mean(filtered_w_LI$days_since_tagging)
 sd(filtered_w_LI$days_since_tagging)
 IQR(filtered_w_LI$days_since_tagging)
 
-
 #---------------------------------------------------------------------------------
-## Step 1: What are the values of yaw during straight flight (using GPS)     #####
-#---------------------------------------------------------------------------------
-
-
-
-
-#---------------------------------------------------------------------------------
-## Step 2: Data prep-summarize per 8-sec burst & calc bank angle             #####
+## Step 1: Summarize per 8-sec burst & calc bank angle             #####
 #---------------------------------------------------------------------------------
 
 #start with data that was summarized for each second in MS1_IMU_classification/01b_imu_processing.r
@@ -86,7 +78,7 @@ one_sec <- readRDS("matched_GPS_IMU/GPS_matched_or_w_summaries_8secIDs_Jul24.rds
 # calculate summaries of angles for each 8-sec burst
 (start_time <- Sys.time())
 eight_sec <- one_sec %>% 
-  #calculate bank angle. make sure to use roll and pitch in radians. summarize for each row: mean and sd
+  #calculate bank angle. make sure to use roll and pitch in radians. summarize for each row: mean and sd and sum(this takes the mean of values calculated for each 1/20th of second)
   mutate(
     bank_angle_rad_mean = map2_dbl(
       roll, pitch,
@@ -96,23 +88,34 @@ eight_sec <- one_sec %>%
       roll, pitch,
       ~ sd(asin(sin(strings_to_numeric(.x)) * cos(strings_to_numeric(.y))))
     ),
+    bank_angle_rad_sum = map2_dbl(
+      roll, pitch,
+      ~ sum(asin(sin(strings_to_numeric(.x)) * cos(strings_to_numeric(.y))))
+    ),
     bank_angle_deg_mean = bank_angle_rad_mean * 180 / pi,
-    bank_angle_deg_sd = bank_angle_rad_sd * 180 / pi
-  ) %>% 
+    bank_angle_deg_sd = bank_angle_rad_sd * 180 / pi,
+    bank_angle_deg_sum = bank_angle_rad_sum * 180 /pi) %>%
+  
+  #calculate bank angle. use summarized values of roll and pitch for each second
+  mutate(cumulative_roll_rad = cumulative_roll * pi / 180,
+         cumulative_pitch_rad = cumulative_pitch * pi / 180,
+         bank_rad_one_sec = asin(sin(cumulative_roll_rad) * cos(cumulative_pitch_rad)),
+         bank_deg_one_sec = bank_rad_one_sec * 180 / pi) %>% 
+  
   group_by(burst_id_8sec) %>% #this grouping variable has unique values for individuals and bursts. 
   arrange(timestamp, .by_group = T) %>% 
   #aggregate summarized angles over 8 seconds
   summarize(across(c(study_id, individual_taxon_canonical_name, individual_local_identifier, orientation_quaternions_sampling_frequency,
                      tag_local_identifier, tag_id, imu_burst_id, burst_duration), ~head(.,1)),
-            across(c(yaw_sd, roll_sd, pitch_sd,
+            across(c(yaw_sd, roll_sd, pitch_sd, bank_angle_deg_sd,
                      yaw_mean, roll_mean, pitch_mean,
                      yaw_min, roll_min, pitch_min,
                      yaw_max, roll_max, pitch_max), 
                    ~mean(., na.rm = T),
                    .names = "mean_{.col}"), #rename the column, because these values are the mean of the sd, max, min values across the 8 seconds
-            across(c(cumulative_yaw, cumulative_roll, cumulative_pitch),
+            across(c(cumulative_yaw, cumulative_roll, cumulative_pitch, yaw_mean, roll_mean, bank_angle_deg_mean, bank_angle_deg_sum, bank_deg_one_sec),
                    ~sum(., na.rm = T),
-                   .names = "{.col}_8sec"),
+                   .names = "{.col}_sum_8sec"),
             across(c(timestamp, timestamp_closest_gps, location_lat_closest_gps, location_long_closest_gps, height_above_ellipsoid_closest_gps, ground_speed_closest_gps, heading_closest_gps), 
                    ~head(.,1),
                    .names = "start_{.col}"),
@@ -123,7 +126,114 @@ eight_sec <- one_sec %>%
             .groups = "keep") %>% 
   ungroup %>% 
   as.data.frame()
-(Sys.time() - start_time) #17.3 minutes
+(Sys.time() - start_time) #29 minutes
+
+#sanity check for bank angle calculation -------------------------------------------------------------------------------------------
+
+#three ways to calculate bank angle:
+#1) for each 1/20th of second, then take the mean (as done above)
+
+ggplot(eight_sec, aes(x = cumulative_yaw_sum_8sec, y = bank_angle_deg_mean_sum_8sec)) +
+  geom_point() +  # Add points
+  geom_smooth(method = "lm", col = "blue") +  # Add linear model
+  labs(title = "bank angle calculated for each 1/20 of second, then averaged for each second, then summerd for 8-seconds"
+  )
+
+#2) for each 8-second burst, calculate bank angle using cumulative roll and pitch ...........spoiler: looks bad
+
+eight_sec <- eight_sec %>% 
+  mutate(cumulative_roll_sum_8sec_rad = cumulative_roll_sum_8sec * pi / 180,
+         cumulative_pitch_sum_8sec_rad = cumulative_pitch_sum_8sec * pi / 180,
+         bank_rad_8sec = asin(sin(cumulative_roll_sum_8sec_rad) * cos(cumulative_pitch_sum_8sec_rad)),
+         bank_deg_8sec = bank_rad_8sec * 180 / pi)
+
+ggplot(eight_sec, aes(x = cumulative_yaw_sum_8sec, y = bank_deg_8sec)) +
+  geom_point() +  # Add points
+  geom_smooth(method = "lm", col = "blue") +  # Add linear model
+  labs(title = "bank angle calculated for each 8-second burst, using cumulative roll and cumulative pitch"
+  )
+
+#3) for each second, calculate bank angle using the cumulative roll and pitch for that second, then sum up for 8 seconds. this is also done now in the code above
+
+
+#4)for each 1/20th of second, then sum them up (as done above)
+ggplot(eight_sec, aes(x = cumulative_yaw_sum_8sec, y = bank_angle_deg_sum_sum_8sec)) +
+  geom_point() +  # Add points
+  geom_smooth(method = "lm", col = "blue") +  # Add linear model
+  labs(title =  "bank angle calculated for each 1/20 of second, then summed for each second, then summerd for 8-seconds"
+  )
+
+##compare 1 and 4
+plot(eight_sec$bank_angle_deg_sum_sum_8sec, eight_sec$bank_angle_deg_mean_sum_8sec)
+
+#compare bank and roll
+plot(eight_sec$cumulative_roll_sum_8sec, eight_sec$bank_angle_deg_mean_sum_8sec)
+
+#sanity check-------------------------------------------------------------------------------------------
+smpl_8 <- eight_sec %>% 
+  filter(individual_local_identifier == "D329_013" &
+           imu_burst_id %in% c(2672, 2674, 2676, 2677, 2678))
+
+smpl_1 <- one_sec %>% 
+  filter(individual_local_identifier == "D329_013" &
+           imu_burst_id %in% c(2672, 2674, 2676, 2677, 2678))
+
+#I want to add the 8-sec assignments to the 1-sec data:
+sample_complete <- smpl_1 %>% 
+  full_join(smpl_8 %>%  select(burst_id_8sec, yaw_mean_sum_8sec, cumulative_roll_sum_8sec, cumulative_yaw_sum_8sec, roll_mean_sum_8sec, bank_angle_deg_sum_sum_8sec, bank_angle_deg_mean_sum_8sec))
+
+sample_sf <- sample_complete %>% 
+  drop_na("location_lat_closest_gps") %>% 
+  st_as_sf(coords = c("location_long_closest_gps", "location_lat_closest_gps"), crs = wgs)
+
+
+mapview(sample_sf , zcol = "roll_mean_sum_8sec")
+mapview(sample_sf , zcol = "bank_angle_deg_mean_sum_8sec") 
+mapview(sample_sf , zcol = "yaw_mean_sum_8sec") 
+mapview(sample_sf , zcol = "cumulative_yaw_sum_8sec") 
+mapview(sample_sf , zcol = "bank_deg_8sec") 
+
+
+#assign left turn vs right turn categories to compare how cumulative_yaw vs mean_yaw do.
+sample_sf <- sample_sf %>% 
+  mutate(yaw_direction_cumulative = case_when(
+    cumulative_yaw_sum_8sec > 0 ~ "positive",
+    cumulative_yaw_sum_8sec < 0 ~ "negative",
+    cumulative_yaw_sum_8sec == 0 ~ "straight"
+  ),
+  yaw_direction_mean = case_when(
+    yaw_mean_sum_8sec > 0 ~ "positive",
+    yaw_mean_sum_8sec < 0 ~ "negative",
+    yaw_mean_sum_8sec == 0 ~ "straight"
+  ),
+  bank_direction_mean = case_when(
+    bank_angle_deg_mean_sum_8sec > 0 ~ "positive",
+    bank_angle_deg_mean_sum_8sec < 0 ~ "negative",
+    bank_angle_deg_mean_sum_8sec == 0 ~ "straight"
+  ),
+  #bank_direction_for8sec = case_when(
+  #  bank_deg_8sec > 0 ~ "positive",
+  #  bank_deg_8sec < 0 ~ "negative",
+  #  bank_deg_8sec == 0 ~ "straight"
+  #),
+  bank_direction_sum = case_when(
+    bank_angle_deg_sum_sum_8sec > 0 ~ "positive",
+    bank_angle_deg_sum_sum_8sec < 0 ~ "negative",
+    bank_angle_deg_sum_sum_8sec == 0 ~ "straight"
+  ))
+
+mapview(sample_sf , zcol = "yaw_direction_cumulative") 
+mapview(sample_sf , zcol = "yaw_direction_mean") 
+mapview(sample_sf , zcol = "bank_direction_mean") 
+mapview(sample_sf , zcol = "bank_direction_for8sec") #looks very bad
+mapview(sample_sf , zcol = "bank_direction_sum") 
+
+#---------------------------------------------------------------------------------
+## Step 2: What are the values of yaw during straight flight (using GPS)     #####
+#---------------------------------------------------------------------------------
+
+
+
 
 
 #---------------------------------------------------------------------------------
