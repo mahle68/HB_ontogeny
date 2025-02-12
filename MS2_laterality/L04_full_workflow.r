@@ -220,13 +220,28 @@ sample_sf <- sample_sf %>%
     bank_angle_deg_sum_sum_8sec > 0 ~ "positive",
     bank_angle_deg_sum_sum_8sec < 0 ~ "negative",
     bank_angle_deg_sum_sum_8sec == 0 ~ "straight"
+  ),
+  roll_direction_cumsum = case_when(
+    cumulative_roll_sum_8sec > 0 ~ "positive",
+    cumulative_roll_sum_8sec < 0 ~ "negative",
+    cumulative_roll_sum_8sec == 0 ~ "straight"
+    ),
+  roll_direction_mean = case_when(
+    roll_mean_sum_8sec > 0 ~ "positive",
+    roll_mean_sum_8sec < 0 ~ "negative",
+    roll_mean_sum_8sec == 0 ~ "straight"
   ))
 
 mapview(sample_sf , zcol = "yaw_direction_cumulative") 
 mapview(sample_sf , zcol = "yaw_direction_mean") 
-mapview(sample_sf , zcol = "bank_direction_mean") 
+mapview(sample_sf , zcol = "bank_direction_mean") #this looks the best so far
 mapview(sample_sf , zcol = "bank_direction_for8sec") #looks very bad
 mapview(sample_sf , zcol = "bank_direction_sum") 
+mapview(sample_sf , zcol = "roll_direction_cumsum") #this doesnt look very good 
+mapview(sample_sf , zcol = "roll_direction_mean") #this makes sense
+
+#look at raw bank, not just direction
+mapview(sample_sf , zcol = "bank_angle_deg_mean_sum_8sec") 
 
 #---------------------------------------------------------------------------------
 ## Step 2: What are the values of yaw during straight flight (using GPS)     #####
