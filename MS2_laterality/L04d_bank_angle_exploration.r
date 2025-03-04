@@ -1,4 +1,4 @@
-## figuring out bank angle!!
+## figuring out bank angle!! calculating bank angle at the original resolution (20 Hz)
 #Feb 12.2025. Konstanz, DE
 #Elham Nourani, enourani@ab.mpg.de
 
@@ -8,6 +8,8 @@ library(tidyverse)
 library(sf)
 library(mapview)
 
+setwd("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/R_files/")
+source("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/HB_ontogeny/MS1_IMU_classification/00_imu_diy.r")
 
 
 ## step 1: bank angle function--------------------------------------------------------------
@@ -89,3 +91,8 @@ mapview(sample_sf , zcol = "bank_mean")
 mapview(sample_sf , zcol = "cumulative_roll") 
 
 plot(sample_sf$roll_mean, sample_sf$bank_mean)
+
+plot(sample_sf$cumulative_bank, sample_sf$bank_mean)
+plot(sample_sf$cumulative_roll, sample_sf$roll_mean)
+
+#mean bank works better than cumulative bank.

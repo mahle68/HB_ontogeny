@@ -128,6 +128,8 @@ eight_sec <- one_sec %>%
   as.data.frame()
 (Sys.time() - start_time) #29 minutes
 
+saveRDS(eight_sec, file = "matched_GPS_IMU/GPS_matched_or_w_summaries_8sec_ba_test.rds")
+
 #sanity check for bank angle calculation -------------------------------------------------------------------------------------------
 
 #three ways to calculate bank angle:
