@@ -88,7 +88,7 @@ mapview(sample_sf , zcol = "bank_mean")
 
 #compare to roll
 #direction when using the mean
-mapview(sample_sf , zcol = "cumulative_roll") 
+mapview(sample_sf , zcol = "cumulative_roll")
 
 plot(sample_sf$roll_mean, sample_sf$bank_mean)
 

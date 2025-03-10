@@ -132,6 +132,10 @@ saveRDS(eight_sec, file = "matched_GPS_IMU/GPS_matched_or_w_summaries_8sec_ba_te
 
 #sanity check for bank angle calculation -------------------------------------------------------------------------------------------
 
+#conclusion from the L04d_bank_angle_exploration.r: use averaged bank angle per second
+
+eight_sec <- readRDS("matched_GPS_IMU/GPS_matched_or_w_summaries_8sec_ba_test.rds")
+
 #three ways to calculate bank angle:
 #1) for each 1/20th of second, then take the mean (as done above)
 
@@ -141,19 +145,19 @@ ggplot(eight_sec, aes(x = cumulative_yaw_sum_8sec, y = bank_angle_deg_mean_sum_8
   labs(title = "bank angle calculated for each 1/20 of second, then averaged for each second, then summerd for 8-seconds"
   )
 
-#2) for each 8-second burst, calculate bank angle using cumulative roll and pitch ...........spoiler: looks bad
-
-eight_sec <- eight_sec %>% 
-  mutate(cumulative_roll_sum_8sec_rad = cumulative_roll_sum_8sec * pi / 180,
-         cumulative_pitch_sum_8sec_rad = cumulative_pitch_sum_8sec * pi / 180,
-         bank_rad_8sec = asin(sin(cumulative_roll_sum_8sec_rad) * cos(cumulative_pitch_sum_8sec_rad)),
-         bank_deg_8sec = bank_rad_8sec * 180 / pi)
-
-ggplot(eight_sec, aes(x = cumulative_yaw_sum_8sec, y = bank_deg_8sec)) +
-  geom_point() +  # Add points
-  geom_smooth(method = "lm", col = "blue") +  # Add linear model
-  labs(title = "bank angle calculated for each 8-second burst, using cumulative roll and cumulative pitch"
-  )
+# #2) for each 8-second burst, calculate bank angle using cumulative roll and pitch ...........spoiler: looks bad
+# 
+# eight_sec <- eight_sec %>% 
+#   mutate(cumulative_roll_sum_8sec_rad = cumulative_roll_sum_8sec * pi / 180,
+#          cumulative_pitch_sum_8sec_rad = cumulative_pitch_sum_8sec * pi / 180,
+#          bank_rad_8sec = asin(sin(cumulative_roll_sum_8sec_rad) * cos(cumulative_pitch_sum_8sec_rad)),
+#          bank_deg_8sec = bank_rad_8sec * 180 / pi)
+# 
+# ggplot(eight_sec, aes(x = cumulative_yaw_sum_8sec, y = bank_deg_8sec)) +
+#   geom_point() +  # Add points
+#   geom_smooth(method = "lm", col = "blue") +  # Add linear model
+#   labs(title = "bank angle calculated for each 8-second burst, using cumulative roll and cumulative pitch"
+#   )
 
 #3) for each second, calculate bank angle using the cumulative roll and pitch for that second, then sum up for 8 seconds. this is also done now in the code above
 
@@ -243,7 +247,7 @@ mapview(sample_sf , zcol = "roll_direction_cumsum") #this doesnt look very good
 mapview(sample_sf , zcol = "roll_direction_mean") #this makes sense
 
 #look at raw bank, not just direction
-mapview(sample_sf , zcol = "bank_angle_deg_mean_sum_8sec") 
+mapview(sample_sf , zcol = "bank_angle_deg_mean_sum_8sec")
 
 #---------------------------------------------------------------------------------
 ## Step 2: What are the values of yaw during straight flight (using GPS)     #####
