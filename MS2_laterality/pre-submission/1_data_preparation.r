@@ -67,7 +67,7 @@ sd(filtered_w_LI$days_since_tagging)
 IQR(filtered_w_LI$days_since_tagging)
 
 #---------------------------------------------------------------------------------
-## Step 1: Summarize per 8-sec burst & calc bank angle             #####
+## Step 1: Summarize per 8-sec burst & calc bank angle                       #####
 #---------------------------------------------------------------------------------
 
 #start with data that was summarized for each second in MS1_IMU_classification/01b_imu_processing.r
@@ -101,7 +101,7 @@ eight_sec <- one_sec %>%
                    .names = "mean_{.col}"), #rename the column, because these values are the mean of the sd, max, min values across the 8 seconds
             across(c(cumulative_yaw, cumulative_roll, cumulative_pitch, yaw_mean, roll_mean),
                    ~sum(., na.rm = T),
-                   .names = "{.col}_sum_8sec"),
+                   .names = "{.col}_sum_8sec"), #in the old version, this was "{.col}_8sec"
             across(c(timestamp, timestamp_closest_gps, location_lat_closest_gps, location_long_closest_gps, height_above_ellipsoid_closest_gps, ground_speed_closest_gps, heading_closest_gps), 
                    ~head(.,1),
                    .names = "start_{.col}"),
@@ -109,6 +109,7 @@ eight_sec <- one_sec %>%
                    ~Mode(.), #make sure the Mode function is defined
                    .names = "{.col}_Mode"),
             end_timestamp = tail(timestamp,1),
+            n_recods = n(), #n of observations for this burst
             bank_angle_deg_sd = sd(bank_angle_deg_mean, na.rm = T), #sd of bank angle over the 8 seconds
             bank_angle_deg_var = var(bank_angle_deg_mean, na.rm = T), #variance of bank angle over the 8 seconds
             .groups = "keep") %>% 
@@ -123,147 +124,17 @@ saveRDS(eight_sec, file = "matched_GPS_IMU/GPS_matched_or_w_summaries_8sec_BA.rd
 
 eight_sec <- readRDS("matched_GPS_IMU/GPS_matched_or_w_summaries_8sec_BA.rds")
 
-ggplot(eight_sec, aes(x = cumulative_yaw_sum_8sec, y = bank_angle_deg_mean_sum_8sec)) +
+ggplot(eight_sec, aes(x = cumulative_yaw_sum_8sec, y = mean_bank_angle_deg_mean)) +
   geom_point() +  # Add points
   geom_smooth(method = "lm", col = "blue") +  # Add linear model
-  labs(title = "bank angle calculated for each 1/20 of second, then averaged for each second, then summerd for 8-seconds"
+  labs(title = "bank angle calculated for each 1/20 of second, then averaged for each second, then averaged for 8-seconds"
   )
 
-
-#sanity check-------------------------------------------------------------------------------------------
-smpl_8 <- eight_sec %>% 
-  filter(individual_local_identifier == "D329_013" &
-           imu_burst_id %in% c(2672, 2674, 2676, 2677, 2678))
-
-smpl_1 <- one_sec %>% 
-  filter(individual_local_identifier == "D329_013" &
-           imu_burst_id %in% c(2672, 2674, 2676, 2677, 2678))
-
-#I want to add the 8-sec assignments to the 1-sec data:
-sample_complete <- smpl_1 %>% 
-  full_join(smpl_8 %>%  select(burst_id_8sec, yaw_mean_sum_8sec, cumulative_roll_sum_8sec, cumulative_yaw_sum_8sec, roll_mean_sum_8sec, bank_angle_deg_sum_sum_8sec, bank_angle_deg_mean_sum_8sec))
-
-sample_sf <- sample_complete %>% 
-  drop_na("location_lat_closest_gps") %>% 
-  st_as_sf(coords = c("location_long_closest_gps", "location_lat_closest_gps"), crs = wgs)
-
-
-mapview(sample_sf , zcol = "roll_mean_sum_8sec")
-mapview(sample_sf , zcol = "bank_angle_deg_mean_sum_8sec") 
-mapview(sample_sf , zcol = "yaw_mean_sum_8sec") 
-mapview(sample_sf , zcol = "cumulative_yaw_sum_8sec") 
-mapview(sample_sf , zcol = "bank_deg_8sec") 
-
-
-#assign left turn vs right turn categories to compare how cumulative_yaw vs mean_yaw do.
-sample_sf <- sample_sf %>% 
-  mutate(yaw_direction_cumulative = case_when(
-    cumulative_yaw_sum_8sec > 0 ~ "positive",
-    cumulative_yaw_sum_8sec < 0 ~ "negative",
-    cumulative_yaw_sum_8sec == 0 ~ "straight"
-  ),
-  yaw_direction_mean = case_when(
-    yaw_mean_sum_8sec > 0 ~ "positive",
-    yaw_mean_sum_8sec < 0 ~ "negative",
-    yaw_mean_sum_8sec == 0 ~ "straight"
-  ),
-  bank_direction_mean = case_when(
-    bank_angle_deg_mean_sum_8sec > 0 ~ "positive",
-    bank_angle_deg_mean_sum_8sec < 0 ~ "negative",
-    bank_angle_deg_mean_sum_8sec == 0 ~ "straight"
-  ),
-  #bank_direction_for8sec = case_when(
-  #  bank_deg_8sec > 0 ~ "positive",
-  #  bank_deg_8sec < 0 ~ "negative",
-  #  bank_deg_8sec == 0 ~ "straight"
-  #),
-  bank_direction_sum = case_when(
-    bank_angle_deg_sum_sum_8sec > 0 ~ "positive",
-    bank_angle_deg_sum_sum_8sec < 0 ~ "negative",
-    bank_angle_deg_sum_sum_8sec == 0 ~ "straight"
-  ),
-  roll_direction_cumsum = case_when(
-    cumulative_roll_sum_8sec > 0 ~ "positive",
-    cumulative_roll_sum_8sec < 0 ~ "negative",
-    cumulative_roll_sum_8sec == 0 ~ "straight"
-    ),
-  roll_direction_mean = case_when(
-    roll_mean_sum_8sec > 0 ~ "positive",
-    roll_mean_sum_8sec < 0 ~ "negative",
-    roll_mean_sum_8sec == 0 ~ "straight"
-  ))
-
-mapview(sample_sf , zcol = "yaw_direction_cumulative") 
-mapview(sample_sf , zcol = "yaw_direction_mean") 
-mapview(sample_sf , zcol = "bank_direction_mean") #this looks the best so far
-mapview(sample_sf , zcol = "bank_direction_for8sec") #looks very bad
-mapview(sample_sf , zcol = "bank_direction_sum") 
-mapview(sample_sf , zcol = "roll_direction_cumsum") #this doesnt look very good 
-mapview(sample_sf , zcol = "roll_direction_mean") #this makes sense
-
-#look at raw bank, not just direction
-mapview(sample_sf , zcol = "bank_angle_deg_mean_sum_8sec")
-
-
-##correlation of roll and bank
-plot(eight_sec$bank_angle_deg_mean_sum_8sec, eight_sec$cumulative_roll_sum_8sec)
-#---------------------------------------------------------------------------------
-## Step 2: What are the values of yaw during straight flight (using GPS)     #####
-#---------------------------------------------------------------------------------
-
-#In the 2023 data, extract rows with gliding assigned. summarize yaw, bank angle, and roll
-birds_2023 <- c("D329_013", "D329_012", "D329_015", "D329_014", "D326_193", "D326_192")
-
-#use the one-sec data to be sure that the whole burst was straight
-one_sec_2023 <- readRDS("matched_GPS_IMU/GPS_matched_or_w_summaries_8secIDs_Jul24.rds")%>% 
-  filter(burst_duration > 236) %>% #filter based on burst duration. only keep long ones
-  mutate(gliding_bi = ifelse(flight_type_sm2 == "gliding", "gliding", "not_gliding"),
-         straight_yaw = ifelse(between(cumulative_yaw, -5, 5), "straight", "not_straight"))
-
-#convert to sf
-one_sec_2023_sf <- one_sec_2023 %>% 
-  drop_na("location_lat_closest_gps") %>% 
-  st_as_sf(coords = c("location_long_closest_gps", "location_lat_closest_gps"), crs = "EPSG:4326")
-
-mapview(one_sec_2023_sf, zcol = "gliding_bi")
-
-
-##### look at yaw during gliding
-
-glides <- one_sec_2023_sf %>% filter(gliding_bi == "gliding")
-
-summary(glides$cumulative_yaw)
-
-mapview(glides, zcol = "cumulative_yaw")
-
-##filter based on yaw
-straight_yaw <- one_sec_2023_sf %>% 
-  filter(straight_yaw == "straight") %>% 
-  arrange(timestamp)
-  
-mapview(straight_yaw[1500:2500,], zcol = "cumulative_yaw")
-
-##conclusion: at the one-sec scale, cumulative yaw of -5 to 5 degrees is pretty straight
-
-#what about 8 seconds?
-eight_sec_long_bursts <- readRDS("matched_GPS_IMU/GPS_matched_or_w_summaries_8sec_ba_test.rds") %>% 
-  filter(burst_duration > 230) %>% 
-  drop_na("start_location_lat_closest_gps") %>% 
-  st_as_sf(coords = c("start_location_long_closest_gps", "start_location_lat_closest_gps"), crs = "EPSG:4326")
-
-mapview(eight_sec_long_bursts, zcol = "cumulative_yaw_sum_8sec")
-
-yaw_straight <- eight_sec_long_bursts %>% 
-  filter(between(cumulative_yaw_sum_8sec, -5, 5) & flight_type_sm2_Mode == "gliding") #filter both based on yaw and flight assignment!
-
-mapview(yaw_straight, zcol = "cumulative_roll_sum_8sec")
-
-hist(yaw_straight$cumulative_roll_sum_8sec)
-
-mapview(yaw_straight, zcol = "bank_angle_deg_mean_sum_8sec")
-
-
-##correlation between 
+ggplot(eight_sec, aes(x = mean_roll_mean, y = mean_bank_angle_deg_mean)) +
+  geom_point() +  # Add points
+  geom_smooth(method = "lm", col = "blue") +  # Add linear model
+  labs(title = "bank angle calculated for each 1/20 of second, then averaged for each second, then averaged for 8-seconds"
+  )
 
 #---------------------------------------------------------------------------------
 ## Step 3: Environmental annotation                                          #####
@@ -272,27 +143,20 @@ mapview(yaw_straight, zcol = "bank_angle_deg_mean_sum_8sec")
 #### ----------------------- use the 8-sec data and calculate handedness for each 8 second burst
 #### Prepare the data first, add filtering steps afterwards
 
-laterality_circling <- readRDS("laterality_index_per_8sec_burst_days_since.rds") %>% 
-  
+laterality_circling <- readRDS("matched_GPS_IMU/GPS_matched_or_w_summaries_8sec_BA.rds") %>% 
   #FILTER: remove short bursts 
   filter(n_records >= 6) %>% 
   group_by(individual_local_identifier) %>% 
-  mutate(days_since_tagging = as.numeric(days_since_tagging),
-         individual_local_identifier = as.factor(individual_local_identifier),
+  mutate(individual_local_identifier = as.factor(individual_local_identifier),
          individual_local_identifier2 = individual_local_identifier,
          individual_local_identifier3 = individual_local_identifier) %>% #dublicate individual ID to use for inla random effects specification
+  #create a column for circling status based on yaw
   mutate(circling_status = case_when(
-    between(cumulative_yaw_8sec, -10, 10) ~ "straight",
-    cumulative_yaw_8sec >= 45 | cumulative_yaw_8sec <= -45 ~ "circling",
+    between(cumulative_yaw_sum_8sec, -10, 10) ~ "straight",
+    cumulative_yaw_sum_8sec >= 45 | cumulative_yaw_sum_8sec <= -45 ~ "circling",
     .default = "shallow circling"
   )) %>% 
-  mutate(laterality_dir = case_when(
-    between(laterality_bank, 0.25, 1.0) ~ "right_handed",
-    between(laterality_bank, -1.0, -0.25) ~ "left_handed",
-    between(laterality_bank, -0.25, 0.25) ~ "ambidextrous",
-    .default = NA)) %>% 
-  mutate(laterality_bi = ifelse(laterality_dir == "ambidextrous", 0, 1), #create a binary variable for handedness vs not
-         abs_cum_yaw = abs(cumulative_yaw_8sec)) %>% 
+  mutate(abs_cum_yaw = abs(cumulative_yaw_sum_8sec)) %>% 
   as.data.frame()
 
 #### ----------------------- environmental annotation
@@ -361,6 +225,8 @@ no_gps <- or_w_gps_df %>%
 saveRDS(or_w_gps_df, file = "annotated_gps_w_wind.rds")
 
 #### ----------------------- add life-cycle stage
+
+### ALSO ADD DAY SINCE TAGGING HERE
 #life-cycle stages from L03a_tests_per_day.r
 life_cycle <- readRDS("updated_life_cycle_nov24.rds")
 
@@ -422,8 +288,8 @@ filtered_w_LI <- or_w_gps_flt %>%
   mutate(weeks_since_tagging = ceiling(days_since_tagging/7),  #not all individuals have a week 1. 
          bank_direction = ifelse(mean_roll_mean < 0, "left",
                                  ifelse(mean_roll_mean > 0, "right", "straight")),
-         heading_direction = ifelse(cumulative_yaw_8sec < 0, "left",
-                                    ifelse(cumulative_yaw_8sec > 0, "right", "straight"))) %>% 
+         heading_direction = ifelse(cumulative_yaw_sum_8sec < 0, "left",
+                                    ifelse(cumulative_yaw_sum_8sec > 0, "right", "straight"))) %>% 
   ungroup() %>% 
   
   #------------------laterality index for each day
@@ -636,7 +502,7 @@ circling_data %>%
   filter(abs(r) > 0.5) #sd of roll and pitch = 0.64; sd of yaw and cumulative yaw = 0.7. age and latitude = -0.773
 
 #### ----------------------- exploratory plot
-ggplot(circling_data, aes(x = factor(laterality_bi), y = abs(cumulative_yaw_8sec))) +
+ggplot(circling_data, aes(x = factor(laterality_bi), y = abs(cumulative_yaw_sum_8sec))) +
   geom_boxplot() +
   labs(x = "Laterality", y = "Absolute Cumulative Yaw (8 sec)") +
   theme_minimal()
@@ -653,7 +519,7 @@ ggplot(circling_data, aes(x = factor(laterality_dir), y = location_lat_closest_g
   labs(x = "Laterality", y = "latitude") +
   theme_minimal()
 
-ggplot(circling_data, aes(x = days_since_tagging, y = abs(cumulative_yaw_8sec))) +
+ggplot(circling_data, aes(x = days_since_tagging, y = abs(cumulative_yaw_sum_8sec))) +
   geom_point() + 
   geom_smooth(method = "lm")
 

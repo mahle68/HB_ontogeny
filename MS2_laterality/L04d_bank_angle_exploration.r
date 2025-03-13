@@ -20,6 +20,12 @@ bank_angle <- function(roll_rad, pitch_rad) {
       bank_rad = asin(sin(roll_rad) * cos(pitch_rad)),
       bank_deg = bank_rad * 180 / pi,
       bank_diff = bank_deg - lag(bank_deg, default = first(bank_deg)),
+      bank_diff_circ = case_when(
+        bank_diff > 180 ~ bank_diff - 360,
+        bank_diff < -180 ~ bank_diff + 360,
+        TRUE ~ bank_diff
+      ),
+      cumulative_bank_circ = cumsum(bank_diff_circ),
       cumulative_bank = cumsum(bank_diff)
     ) %>%
     summarise(
@@ -27,7 +33,8 @@ bank_angle <- function(roll_rad, pitch_rad) {
       bank_mean = mean(bank_deg),
       bank_max = max(bank_deg),
       bank_min = min(bank_deg),
-      cumulative_bank = last(cumulative_bank)
+      cumulative_bank = last(cumulative_bank),
+      cumulative_bank_circ = last(cumulative_bank_circ)
     )
 }
 
@@ -57,6 +64,11 @@ sample_b <- one_sec %>%
     cumulative_bank < 0 ~ "negative",
     cumulative_bank == 0 ~ "straight"
   ),
+  bank_direction_circ_cumulative = case_when(
+    cumulative_bank_circ > 0 ~ "positive",
+    cumulative_bank_circ < 0 ~ "negative",
+    cumulative_bank_circ == 0 ~ "straight"
+  ),
   bank_direction_mean = case_when(
     bank_mean > 0 ~ "positive",
     bank_mean < 0 ~ "negative",
@@ -65,14 +77,40 @@ sample_b <- one_sec %>%
   as.data.frame()
 
 
+plot(sample_b$cumulative_bank, sample_b$cumulative_bank_circ) ## these two are identical. at the second scale, the range of cumulative bank doesnt exceed 180 degrees anyway
+
+#then implement the angle correction at the 8 second scale?
+#try it. because summing up the variables, i get a range of -400 to 400 degrees
+
+sample_b_8sec <- sample_b %>% 
+  group_by(burst_id_8sec) %>% #this grouping variable has unique values for individuals and bursts. 
+  arrange(timestamp, .by_group = T) %>% 
+  mutate(bank_diff_8sec = bank_mean - lag(bank_mean, default = first(bank_mean)), #calc differences between mean bank across 8 sec
+  bank_diff_8sec = case_when(
+    bank_diff_8sec > 180 ~ bank_diff_8sec - 360,
+    bank_diff_8sec < -180 ~ bank_diff_8sec + 360,
+    TRUE ~ bank_diff_8sec
+  ),
+  cumulative_bank_8sec = cumsum(bank_diff_8sec)
+  ) %>% 
+  summarize(across(c(study_id, individual_taxon_canonical_name, individual_local_identifier, orientation_quaternions_sampling_frequency,
+                     tag_local_identifier, tag_id, imu_burst_id, burst_duration), ~head(.,1)),
+            across(c(timestamp, timestamp_closest_gps, location_lat_closest_gps, location_long_closest_gps, height_above_ellipsoid_closest_gps, ground_speed_closest_gps, heading_closest_gps), 
+                   ~head(.,1),
+                   .names = "start_{.col}"),
+            across(c(flight_type_sm2, flight_type_sm3, track_flight_seg_id),
+                   ~Mode(.), #make sure the Mode function is defined
+                   .names = "{.col}_Mode"),
+            end_timestamp = tail(timestamp,1),
+            cum_bank_8sec = last(cumulative_bank_8sec),
+            .groups = "keep")
+  
 ## step 3: plotting--------------------------------------------------------------
 
 #create an sf object
 sample_sf <- sample_b %>% 
   drop_na("location_lat_closest_gps") %>% 
   st_as_sf(coords = c("location_long_closest_gps", "location_lat_closest_gps"), crs = wgs)
-
-
 
 #cumulative bank values
 mapview(sample_sf , zcol = "cumulative_bank") 
