@@ -1,4 +1,5 @@
-
+#update with BA: use the laterality index as a continuous variable to model the strength of lateralization, rather than the binary lateralized vs not.
+#this is because with the calculation of lateralization in bank angle, i don't have many ambidextrous assignments within the 8-sec bursts
 
 #---------------------------------------------------------------------
 ## Step 4: Is laterality more likely when the task is difficult? #####
@@ -38,7 +39,7 @@ ggplot(circling_data, aes(x = factor(laterality_bi_8sec), y = abs(cumulative_yaw
   labs(x = "Laterality", y = "Absolute Cumulative Yaw (8 sec)") +
   theme_minimal()
 
-ggplot(circling_data, aes(x = factor(laterality_dir), y = days_since_tagging)) +
+ggplot(circling_data, aes(x = factor(laterality_dir_8sec), y = days_since_tagging)) +
   geom_boxplot() +
   labs(x = "Laterality", y = "") +
   theme_minimal()

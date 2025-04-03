@@ -24,10 +24,10 @@ library(rptR)
 library(xtable) #for exporting latex tables
 library(ggh4x) # devtools::install_github("teunbrand/ggh4x") #allows modifying colors of facets in ggplot
 
-setwd("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/R_files/")
+setwd("/home/mahle68/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/R_files/")
 
 #source the imu conversion functions
-source("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/HB_ontogeny/MS1_IMU_classification/00_imu_diy.r")
+source("/home/mahle68/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/HB_ontogeny/MS1_IMU_classification/00_imu_diy.r")
 
 getmode <- function(v) {
   uniqv <- unique(v)
@@ -85,7 +85,13 @@ eight_sec <- one_sec %>%
       ~ mean(asin(sin(strings_to_numeric(.x)) * cos(strings_to_numeric(.y))))
     ),
     bank_angle_deg_mean = bank_angle_rad_mean * 180 / pi) %>%
-  
+  #calc laterality direction
+  mutate(bank_direction = ifelse(bank_angle_deg_mean < 0, "left",
+                                    ifelse(bank_angle_deg_mean > 0, "right", "straight")),
+         roll_direction = ifelse(cumulative_roll < 0, "left",
+                                 ifelse(cumulative_roll > 0, "right", "straight")),
+         heading_direction = ifelse(cumulative_yaw < 0, "left",
+                                    ifelse(cumulative_yaw > 0, "right", "straight"))) %>% # save up to this stage to compare second-scale laterality with the roll laterality from before: saveRDS(sec, file = "one_sec_BA_laterality.rds")
   #summarize for each 8 second burst
   group_by(burst_id_8sec) %>% #this grouping variable has unique values for individuals and bursts. 
   arrange(timestamp, .by_group = T) %>% 
@@ -109,13 +115,25 @@ eight_sec <- one_sec %>%
                    ~Mode(.), #make sure the Mode function is defined
                    .names = "{.col}_Mode"),
             end_timestamp = tail(timestamp,1),
-            n_recods = n(), #n of observations for this burst
+            n_records = n(), #n of observations for this burst
+            bank_left = sum(bank_direction == "left"),
+            bank_right = sum(bank_direction == "right"),
+            bank_straight = sum(bank_direction == "straight"),
+            roll_left = sum(roll_direction == "left"),
+            roll_right = sum(roll_direction == "right"),
+            roll_straight = sum(roll_direction == "straight"),
+            heading_left = sum(heading_direction == "left"),
+            heading_right = sum(heading_direction == "right"),
+            heading_straight = sum(heading_direction == "straight"),
+            laterality_bank = (bank_right - bank_left)/(bank_right + bank_left + bank_straight),
+            laterality_roll = (roll_right - roll_left)/(roll_right + roll_left + roll_straight),
+            laterality_heading = (heading_right - heading_left)/(heading_right + heading_left + heading_straight),
             bank_angle_deg_sd = sd(bank_angle_deg_mean, na.rm = T), #sd of bank angle over the 8 seconds
             bank_angle_deg_var = var(bank_angle_deg_mean, na.rm = T), #variance of bank angle over the 8 seconds
             .groups = "keep") %>% 
   ungroup %>% 
   as.data.frame()
-(Sys.time() - start_time) #19 minutes
+(Sys.time() - start_time) #12 minutes (on labtop)
 
 saveRDS(eight_sec, file = "matched_GPS_IMU/GPS_matched_or_w_summaries_8sec_BA.rds")
 
@@ -164,7 +182,7 @@ laterality_circling <- readRDS("matched_GPS_IMU/GPS_matched_or_w_summaries_8sec_
 #6940 rows don't have a gps location associated with them.... so, redo GPS-matching and increase the time window to one hour, to match that of the env. data
 #open raw gps data, matched with wind in L04a_env_annotation.r
 
-gps_ls <- readRDS("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/data/all_gps_apr15_24_wind.rds") %>% 
+gps_ls <- readRDS("/home/mahle68/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/data/all_gps_apr15_24_wind.rds") %>% 
   mutate(individual_local_identifier = as.character(individual_local_identifier)) %>% 
   arrange(individual_local_identifier) %>% 
   group_by(individual_local_identifier) %>% 
@@ -204,7 +222,7 @@ find_closest_gps <- function(or_data, gps_data, time_tolerance = 60 * 60) {
 # Create a list of data frames with or data and associated GPS information
 (b <- Sys.time())
 or_w_gps <- map2(or_ls, gps_ls, ~ find_closest_gps(or_data = .x, gps_data = .y))
-Sys.time() - b # 23 mins
+Sys.time() - b # 32 mins
 
 #add a column comparing or and gps timestamps. then save one file per individual.
 or_w_gps_df <- lapply(or_w_gps, function(x){
@@ -283,6 +301,11 @@ or_w_gps_flt <- readRDS("laterality_w_gps_wind_LS_no_filter_BA.rds") %>%
 #-------------------------------------------------------------------------
 
 filtered_w_LI <- or_w_gps_flt %>% 
+  mutate(laterality_dir_8sec = case_when(
+    between(laterality_bank, 0.25, 1.0) ~ "right_handed",
+    between(laterality_bank, -1.0, -0.25) ~ "left_handed",
+    between(laterality_bank, -0.25, 0.25) ~ "ambidextrous",
+    .default = NA)) %>% 
   group_by(individual_local_identifier) %>% 
   arrange(days_since_tagging, .by_group = T) %>% 
   mutate(weeks_since_tagging = ceiling(days_since_tagging/7),  #not all individuals have a week 1. 
@@ -291,19 +314,6 @@ filtered_w_LI <- or_w_gps_flt %>%
          heading_direction = ifelse(cumulative_yaw_sum_8sec < 0, "left",
                                     ifelse(cumulative_yaw_sum_8sec > 0, "right", "straight"))) %>% 
   ungroup() %>% 
-  #------------------laterality index for each burst
-  group_by(burst_id_8sec) %>% 
-  mutate(total_n = n(),
-         bank_left = sum(bank_direction == "left"),
-         bank_right = sum(bank_direction == "right"),
-         bank_straight = sum(bank_direction == "straight"),
-         laterality_bank_8sec = (bank_right - bank_left)/(bank_right + bank_left + bank_straight)) %>%
-  mutate(laterality_dir_8sec = case_when(
-    between(laterality_bank_8sec, 0.25, 1.0) ~ "right_handed",
-    between(laterality_bank_8sec, -1.0, -0.25) ~ "left_handed",
-    between(laterality_bank_8sec, -0.25, 0.25) ~ "ambidextrous")) %>% 
-  ungroup() %>% 
-  select(-c(total_n, bank_left, bank_right, bank_straight)) %>% 
   
   #------------------laterality index for each day
   group_by(individual_local_identifier, days_since_tagging) %>% 
