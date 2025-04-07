@@ -331,12 +331,9 @@ X11(width = 7, height = 8)
                aes(xintercept = graph %>% filter(Factor == "wind_speed_z") %>% pull(Estimate)), linetype = "dashed", color = "gray75", linewidth = 0.5) +  
     geom_point(size = 2, position = position_dodge(width = .7))  +
     geom_linerange(aes(xmin = lower, xmax = upper), size = 0.8, position = position_dodge(width = .7)) +
-    # scale_color_manual(values = c("left_handed" = "#33638DFF" , "ambidextrous" = "#B8DE29FF", "right_handed" =  "#20A387FF"),
-    #                    labels = c("Left-handed", "Ambidextrous", "Right-handed"),
-    #                    name = "Handedness") +
     scale_color_manual(values = c("left_handed" = "#9c179e" , "ambidextrous" = "#fb9f3a", "right_handed" =  "#0d0887"),
-                       labels = c("Left-handed", "Ambidextrous", "Right-handed"),
-                       name = "Handedness") +
+                       labels = c("Left", "No bias", "Right"),
+                       name = "Lateralization") +
     scale_y_discrete(labels = levels(three_vars$ID)) +
     labs(x = "Estimate", y = "Individual ID") +
     theme_classic() +

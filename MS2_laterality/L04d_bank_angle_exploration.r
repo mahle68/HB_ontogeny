@@ -134,3 +134,10 @@ plot(sample_sf$cumulative_bank, sample_sf$bank_mean)
 plot(sample_sf$cumulative_roll, sample_sf$roll_mean)
 
 #mean bank works better than cumulative bank.
+
+
+
+### yaw and roll
+
+mapview(sample_sf , zcol = "cumulative_yaw") 
+
