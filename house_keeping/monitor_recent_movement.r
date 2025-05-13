@@ -14,7 +14,7 @@ setwd("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projec
 
 #STEP 1: download gps data for the past n weeks -----------------------------
 
-creds <- movebank_store_credentials(username = "mahle68", rstudioapi::askForPassword())
+#creds <- movebank_store_credentials(username = "mahle68", rstudioapi::askForPassword())
 HB_id <- movebank_get_study_id("European Honey Buzzard_Finland")
 
 #timerange... past n weeks
@@ -44,3 +44,6 @@ gps_sf <- gps %>%
   st_as_sf(coords = c("location_long", "location_lat"), crs = "EPSG:4326") 
 
 mapview(gps_sf, zcol = "individual_local_identifier")
+
+
+

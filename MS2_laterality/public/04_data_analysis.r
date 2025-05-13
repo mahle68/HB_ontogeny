@@ -1,6 +1,14 @@
 # script for analzing the data for Safi et al 2025 (follows from 01_data_prep.r)
 # Elham Nourani, PhD. enourani@ab.mgp.de
 
+library(tidyverse)
+library(INLA)
+library(patchwork)
+library(xtable)
+
+
+setwd("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/R_files/")
+
 #---------------------------------------------------------------------
 ## Step 4: Is laterality more likely when the task is difficult? #####
 #---------------------------------------------------------------------
@@ -571,6 +579,8 @@ saveRDS(migr_daily_ww, file = "data_migration_performance_models_2min_daily2.rds
 
 #### exploratory plots-----------------------------------------------------------------------------
 
+migr_daily_ww <- readRDS("data_migration_performance_models_2min_daily2.rds")
+
 migr_long <- migr_daily_ww %>%
   pivot_longer(cols = c(daily_max_wind, daily_mean_wind, daily_max_cum_yaw, 
                         daily_mean_cum_yaw, daily_max_mean_pitch, 
@@ -642,12 +652,10 @@ response_names <- c(
 plots_ls <- lapply(1:length(response_vars), function(response){
   
   #model
-  #formula <- paste0(response_vars[response], " ~ 1 + daily_max_wind_z + laterality_bi_day") %>% formula()
-  #formula <- paste0(response_vars[response], " ~ 1 + daily_max_wind_z + daily_abs_LI_z") %>% formula()
-  formula <- paste0(response_vars[response], " ~ 1 + daily_max_wind_z + daily_abs_LI_z + days_since_tagging_z") %>% formula()
-  #formula <- paste0(response_vars[response], " ~ 1 + daily_max_wind_z + daily_abs_LI_z * days_since_tagging_z") %>% formula()
+  #formula <- paste0(response_vars[response], " ~ 1 + daily_max_wind_z + daily_abs_LI_z + days_since_tagging_z + f(individual_local_identifier, model = 'iid')") %>% formula()
+  formula <- paste0(response_vars[response], " ~ 1 + daily_max_wind_z + daily_abs_LI_z + f(individual_local_identifier, model = 'iid')") %>% formula()
   
-  #don't include ind ID as a random intercept. some individuals don't have all levels of laterality
+  #run the model. now that LI is included as a continous variable, add ind ID as a random effect
   m_inla <- inla(formula,
                  data = data_m,
                  control.compute = list(cpo = TRUE),
@@ -673,19 +681,19 @@ plots_ls <- lapply(1:length(response_vars), function(response){
   
   #export the output as a latex table -----------
   # Convert to LaTeX table
-  latex_table <- xtable(graph)
-  
-  # Specify the file path for each response variable
-  # file_path <- paste0("/home/mahle68/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/paper_prep/MS2_laterality/tables/latex_table_", response_vars[response], ".txt")
-  
-  # Open a connection to the file
-  #sink(file_path)
-  
-  # Print the LaTeX code to the file
-  #print(latex_table, type = "latex", include.rownames = FALSE)
-  
-  # Close the connection to the file
-  #sink()
+  # latex_table <- xtable(graph)
+  # 
+  # # Specify the file path for each response variable
+  #  file_path <- paste0("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/paper_prep/MS2_laterality/tables/latex_table_", response_vars[response], "2.txt")
+  # 
+  # # Open a connection to the file
+  # sink(file_path)
+  # 
+  # # Print the LaTeX code to the file
+  # print(latex_table, type = "latex", include.rownames = FALSE)
+  # 
+  # # Close the connection to the file
+  # sink()
   
   #plot the coefficients -----------
   
@@ -699,8 +707,8 @@ plots_ls <- lapply(1:length(response_vars), function(response){
     geom_point(color = "#0d0887", size = 1.5)  +
     labs(x = if (response == 5) "Estimate" else "", 
          y = "") +
-    #scale_y_discrete(labels = if (response %in% c(1,4)) rev(c("Intercept", "Max. wind speed", "Abs. Laterality Index")) else c("", "")) + 
-    scale_y_discrete(labels = if (response %in% c(1,4)) rev(c("Intercept", "Max. wind speed", "Abs. Laterality Index", "Days since tagging")) else c("", "", "")) + 
+    scale_y_discrete(labels = if (response %in% c(1,4)) rev(c("Intercept", "Max. wind speed", "Abs. Laterality Index")) else c("", "")) + 
+    #scale_y_discrete(labels = if (response %in% c(1,4)) rev(c("Intercept", "Max. wind speed", "Abs. Laterality Index", "Days since tagging")) else c("", "", "")) + 
     geom_linerange(aes(xmin = Lower, xmax = Upper),color = "#0d0887", linewidth = 0.5) +
     ggtitle(response_names[response]) +
     theme_classic() +
@@ -715,5 +723,29 @@ X11(width = 6.7, height = 2.7)
 combined <- reduce(plots_ls[1:5], `+`)
 (p <- combined + plot_layout(ncol = 3))
 
-ggsave(plot = p, filename = "/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/paper_prep/MS2_laterality/figures/migration_models_multi_panel_continuous_age.pdf", 
+ggsave(plot = p, filename = "/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/paper_prep/MS2_laterality/figures/migration_models_multi_panel_continuous_indID.pdf", 
        device = "pdf", width = 6.7, height = 2.7, dpi = 600)
+
+
+
+### plot the residuals against days: are individuals more likely to be lateral on difficult days
+# Extract the fitted values and residuals
+fitted_values <- m_inla$summary.fitted.values$mean
+observed_values <- data_m[[response_vars[response]]]
+residuals <- observed_values - fitted_values
+
+# Extract the "day since tagging" column
+days_since_tagging <- data_m[["unique_date"]]
+
+# Plot the residuals against "day since tagging"
+plot(days_since_tagging, residuals, 
+     xlab = "unique_date", 
+     ylab = "Residuals", 
+     main = "Residuals vs unique_date")
+abline(h = 0, col = "red", lty = 2)
+
+
+
+
+
+
