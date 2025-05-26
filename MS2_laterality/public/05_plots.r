@@ -7,7 +7,7 @@ library(lubridate)
 library(sf)
 library(ggridges)
 library(mapview)
-
+library(ggh4x) # devtools::install_github("teunbrand/ggh4x") #allows modifying colors of facets in ggplot
 
 setwd("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/R_files/")
 
@@ -25,7 +25,7 @@ cleaned_gps <- readRDS("cleaned_gps_for_laterality_map.rds")
 wgs <- st_crs("+proj=longlat +datum=WGS84 +no_defs")
 
 #open the continent boundaries layer
-world <- st_read("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/GIS_files/continent_shapefile/World_Continents.shp") %>% 
+world <- st_read("/home/mahle68/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/GIS_files/continent_shapefile/World_Continents.shp") %>% 
   st_crop(xmin = -17.5, xmax = 43, ymin = -35.6, ymax = 70) %>%
   st_union()
 
@@ -79,7 +79,7 @@ X11(height = 4.09, width = 2.3)
     theme_void() +
     theme(text = element_text(size = 8),
           plot.title = element_text(face = "bold", margin = margin(b = 5)), # Add margin below the title
-          plot.margin = margin(0, 0, 0, 0, "pt"))
+          plot.margin = margin(0, 0, 0, 0, "pt")) 
 )
 
 ggsave(plot = flyway_map, filename = "/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/paper_prep/MS2_laterality/figures/map_multi_panel.pdf", 
@@ -160,8 +160,8 @@ X11(height = 4.09, width = 4.3)
       ))) +
     labs(x = "Laterality index",
          y = "Individual ID",
-         fill = "Lateralization",
-         color = "Lateralization") +
+         fill = "Lateralisation",
+         color = "Lateralisation") +
     ggtitle("b") +
     theme_classic() +
     theme(plot.margin = margin(0, 0, 0, 0, "pt"),
@@ -178,5 +178,5 @@ X11(height = 4.09, width = 4.3)
           legend.position = "right")
 )
 
-ggsave(plot = p, filename = "/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/paper_prep/MS2_laterality/figures/LI_distr_multi_panel.pdf", 
+ggsave(plot = p, filename = "/home/mahle68/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/paper_prep/MS2_laterality/figures/LI_distr_multi_panel_ukspelling.pdf", 
        device = "pdf", width = 4.3, height = 4.09, dpi = 600)

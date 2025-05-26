@@ -22,14 +22,14 @@ library(ggh4x) # devtools::install_github("teunbrand/ggh4x") #allows modifying c
 
 setwd("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/R_files/")
 
-#source the imu conversion functions
-source("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/HB_ontogeny/MS1_IMU_classification/00_imu_diy.r")
+#source the imu conversion functions. do i need these here?
+#source("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/HB_ontogeny/MS1_IMU_classification/00_imu_diy.r")
 
+#create a funciton for mode
 getmode <- function(v) {
   uniqv <- unique(v)
   uniqv[which.max(tabulate(match(v, uniqv)))]
 }
-
 
 #---------------------------------------------------------------------------------
 ## Step 0: Life cycle descriptive summaries                                  #####
@@ -66,14 +66,43 @@ IQR(filtered_w_LI$days_since_tagging)
 ## Step 1: Summarize per 8-sec burst                                         #####
 #---------------------------------------------------------------------------------
 
-#start with data that was summarized for each second in MS1_IMU_classification/01b_imu_processing.r
-#this is also already matched with GPS
+#Start with data that was summarized for each second in 02_imu_processing.r
+#the aim of this step is to calculate summaries of the quaternion-derived angles for each 8-second burst
+#and to determine whether the individual was circling during a burst (based on total yaw) and the 
+#laterality index (based on total roll)
 
-one_sec <- readRDS("matched_GPS_IMU/GPS_matched_or_w_summaries_8secIDs_Jul24.rds")
 
-# calculate summaries of angles for each 8-sec burst
+#### ----------------------- Assign a unique burst id to each 8-second burst 
+seconds_summaries <- readRDS("quat_summaries_1sec_Jul24.rds") %>% 
+  drop_na(individual_local_identifier)
+
+#Add a new column with the number of rows of each imu_burst. We have roughly one second of data per row.
+burst_n <- seconds_summaries %>%
+  group_by(individual_local_identifier, imu_burst_id) %>%
+  mutate(n_of_rows = n()) %>%
+  ungroup() %>%
+  as.data.frame()
+
+#Add a new column with new burst IDs for bursts that are longer than 9 seconds. For the rest, keep the original burst IDs
+or_seconds_8_sec_id <- burst_n %>%
+  filter(n_of_rows > 9) %>%
+  group_by(individual_local_identifier, imu_burst_id) %>%
+  mutate(burst_id_8sec = paste0(individual_local_identifier, "_", imu_burst_id, "_", ceiling(row_number() / 8))) %>%
+  ungroup() %>%
+  as.data.frame() %>%
+  #bind it back to the rest of the data
+  full_join(burst_n %>% filter(n_of_rows <= 9)) %>%
+  mutate(burst_id_8sec = ifelse(is.na(burst_id_8sec),
+                                paste0(individual_local_identifier, "_", imu_burst_id, "_", 1), burst_id_8sec)) %>% #assign unique 8-sec burst ID to bursts that were less than 9 seconds long to begin with. use 1 because they each have one sub-burst.
+  as.data.frame()
+
+#### ----------------------- Calculate summaries of angles and the laterality index for each 8-sec burst
+
 (start_time <- Sys.time())
-eight_sec <- one_sec %>% 
+eight_sec <- or_seconds_8_sec_id %>% 
+  #calculate direction of banking based on the roll angle. this will assign the direction for each second (each row)
+  mutate(bank_direction = ifelse(cumulative_roll < 0, "left",
+                                 ifelse(cumulative_roll > 0, "right", "straight"))) %>% 
   group_by(burst_id_8sec) %>% #this grouping variable has unique values for individuals and bursts. 
   arrange(timestamp, .by_group = T) %>% 
   #aggregate summarized angles over 8 seconds
@@ -88,53 +117,64 @@ eight_sec <- one_sec %>%
             across(c(cumulative_yaw, cumulative_roll, cumulative_pitch, yaw_mean, roll_mean),
                    ~sum(., na.rm = T),
                    .names = "{.col}_sum_8sec"),
-            across(c(timestamp, timestamp_closest_gps, location_lat_closest_gps, location_long_closest_gps, height_above_ellipsoid_closest_gps, ground_speed_closest_gps, heading_closest_gps), 
-                   ~head(.,1),
-                   .names = "start_{.col}"),
-            across(c(flight_type_sm2, flight_type_sm3, track_flight_seg_id),
-                   ~Mode(.), #make sure the Mode function is defined
-                   .names = "{.col}_Mode"),
             end_timestamp = tail(timestamp,1),
+            n_records = n(),
+            bank_left = sum(bank_direction == "left"),
+            bank_right = sum(bank_direction == "right"),
+            bank_straight = sum(bank_direction == "straight"),
+            laterality_bank = (bank_right - bank_left)/(bank_right + bank_left),
             .groups = "keep") %>% 
-  ungroup %>% 
-  as.data.frame()
-(Sys.time() - start_time) #10 minutes
-
-saveRDS(eight_sec, file = "matched_GPS_IMU/GPS_matched_or_w_summaries_8sec.rds")
-
-#---------------------------------------------------------------------------------
-## Step 2: Environmental annotation                                          #####
-#---------------------------------------------------------------------------------
-
-#### ----------------------- use the 8-sec data and calculate handedness for each 8 second burst
-#### Prepare the data first, add filtering steps afterwards
-
-laterality_circling <- readRDS("laterality_index_per_8sec_burst_days_since.rds") %>% 
-  
-  #FILTER: remove short bursts 
+  ungroup %>% #now each row corresponds to one 8-second burst
+  #FILTER: remove short bursts. some bursts are shorter than 8 seconds. use 6 seconds as a cut-off
   filter(n_records >= 6) %>% 
-  group_by(individual_local_identifier) %>% 
-  mutate(days_since_tagging = as.numeric(days_since_tagging),
-         individual_local_identifier = as.factor(individual_local_identifier),
-         individual_local_identifier2 = individual_local_identifier,
-         individual_local_identifier3 = individual_local_identifier) %>% #duplicate individual ID to use for inla random effects specification
+  #group_by(individual_local_identifier) %>%
+  #calculate circling based on total yaw angle in the 8-second brust
   mutate(circling_status = case_when(
-    between(cumulative_yaw_8sec, -10, 10) ~ "straight",
-    cumulative_yaw_8sec >= 45 | cumulative_yaw_8sec <= -45 ~ "circling",
+    between(cumulative_yaw_sum_8sec, -10, 10) ~ "straight",
+    cumulative_yaw_sum_8sec >= 45 | cumulative_yaw_sum_8sec <= -45 ~ "circling",
     .default = "shallow circling"
   )) %>% 
+  #calculate laterality index for each burst
   mutate(laterality_dir = case_when(
     between(laterality_bank, 0.25, 1.0) ~ "right_handed",
     between(laterality_bank, -1.0, -0.25) ~ "left_handed",
     between(laterality_bank, -0.25, 0.25) ~ "ambidextrous",
     .default = NA)) %>% 
-  mutate(laterality_bi = ifelse(laterality_dir == "ambidextrous", 0, 1), #create a binary variable for handedness vs not
-         abs_cum_yaw = abs(cumulative_yaw_8sec)) %>% 
+  #create a binary variable for lateralised vs ambidextrous flight in the burst
+  mutate(laterality_bi = ifelse(laterality_dir == "ambidextrous", 0, 1), 
+         abs_cum_yaw = abs(cumulative_yaw_sum_8sec)) %>% 
   as.data.frame()
+(Sys.time() - start_time) #37 minutes
 
-#### ----------------------- environmental annotation
+#saveRDS(eight_sec, file = "matched_GPS_IMU/GPS_matched_or_w_summaries_8sec.rds")
 
-#6940 rows don't have a gps location associated with them.... so, redo GPS-matching and increase the time window to one hour, to match that of the env. data
+#---------------------------------------------------------------------------------
+## Step 2: Environmental annotation                                          #####
+#---------------------------------------------------------------------------------
+
+######THIS WAS MOVED TO THE PREVIOUS STEP#############
+#laterality_circling <- readRDS("laterality_index_per_8sec_burst_days_since.rds") %>% 
+ 
+# laterality_circling <- eight_sec %>% #this doesnt have :n_records, days_since_tagging, and laterality_bank
+#   
+#   #FILTER: remove short bursts 
+#   filter(n_records >= 6) %>% 
+#   group_by(individual_local_identifier) %>%
+#   mutate(circling_status = case_when(
+#     between(cumulative_yaw_8sec, -10, 10) ~ "straight",
+#     cumulative_yaw_8sec >= 45 | cumulative_yaw_8sec <= -45 ~ "circling",
+#     .default = "shallow circling"
+#   )) %>% 
+#   mutate(laterality_dir = case_when(
+#     between(laterality_bank, 0.25, 1.0) ~ "right_handed",
+#     between(laterality_bank, -1.0, -0.25) ~ "left_handed",
+#     between(laterality_bank, -0.25, 0.25) ~ "ambidextrous",
+#     .default = NA)) %>% 
+#   mutate(laterality_bi = ifelse(laterality_dir == "ambidextrous", 0, 1), #create a binary variable for handedness vs not
+#          abs_cum_yaw = abs(cumulative_yaw_8sec)) %>% 
+#   as.data.frame()
+
+
 #open raw gps data, matched with wind in L04a_env_annotation.r
 
 gps_ls <- readRDS("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/data/all_gps_apr15_24_wind.rds") %>% 
@@ -197,7 +237,7 @@ no_gps <- or_w_gps_df %>%
 
 saveRDS(or_w_gps_df, file = "annotated_gps_w_wind.rds")
 
-#### ----------------------- add life-cycle stage
+#### ----------------------- add life-cycle stage and age
 #life-cycle stages from L03a_tests_per_day.r
 life_cycle <- readRDS("updated_life_cycle_nov24.rds")
 

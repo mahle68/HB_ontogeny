@@ -5,9 +5,12 @@ library(tidyverse)
 library(INLA)
 library(patchwork)
 library(xtable)
+library(corrr)
+library(gridExtra)
+library(patchwork)
+library(terra)
 
-
-setwd("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/R_files/")
+setwd("/home/mahle68/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/R_files/")
 
 #---------------------------------------------------------------------
 ## Step 4: Is laterality more likely when the task is difficult? #####
@@ -190,9 +193,9 @@ X11(width = 3.2, height = 2)
                color = "gray75", linewidth = 0.5) +
     geom_point(color = "#0d0887", size = 1.5)  +
     labs(x = "Estimate", y = "") +
-    scale_y_discrete(labels = rev(c("Intercept", "Average pitch", "Absolute cumulative yaw",
-                                    "Wind speed", "Average pitch: Absolute cumulative yaw", "Average pitch: Wind speed",
-                                    "Average cumulative yaw: Wind speed", "Average pitch : Average cumulative yaw: \nWind speed "))) +
+    scale_y_discrete(labels = rev(c("Intercept", "Average pitch", "Absolute total yaw",
+                                    "Wind speed", "Average pitch: Absolute total yaw", "Average pitch: Wind speed",
+                                    "Absolute total yaw: Wind speed", "Average pitch : Absolute total yaw: \nWind speed "))) +
     geom_linerange(aes(xmin = Lower, xmax = Upper),color = "#0d0887", linewidth = 0.5) +
     ggtitle("a") +
     theme_classic() +
@@ -205,7 +208,7 @@ X11(width = 3.2, height = 2)
           axis.title.x = element_text(margin = margin(t = 2))) #increase distance between x-axis values and title
 )
 
-ggsave(plot = coefs, filename = "/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/paper_prep/MS2_laterality/figures/difficulty_model_ws_coeffs_2min.pdf", 
+ggsave(plot = coefs, filename = "/home/mahle68/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/paper_prep/MS2_laterality/figures/renamed_yaw/difficulty_model_ws_coeffs_2min.pdf", 
        device = "pdf", width = 7, height = 4, dpi = 600)
 
 
@@ -271,7 +274,7 @@ X11(width = 3.42, height = 3)
 X11(width = 6.7, height = 2)
 model_output_p <- grid.arrange(coefs, s, nrow = 1, widths = c(0.6, 0.4))
 
-ggsave(plot = model_output_p, filename = "/home/mahle68/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/paper_prep/MS2_laterality/figures/difficulty_model_multi_panel.pdf", 
+ggsave(plot = model_output_p, filename = "/home/mahle68/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/paper_prep/MS2_laterality/figures/renamed_yaw/difficulty_model_multi_panel.pdf", 
        device = "pdf", width = 6.7, height = 2, dpi = 600)
 
 #### ind_specific coefficients plot -----------------------------------------------------------------------------
@@ -341,7 +344,7 @@ X11(width = 7, height = 8)
     geom_linerange(aes(xmin = lower, xmax = upper), size = 0.8, position = position_dodge(width = .7)) +
     scale_color_manual(values = c("left_handed" = "#9c179e" , "ambidextrous" = "#fb9f3a", "right_handed" =  "#0d0887"),
                        labels = c("Left", "No bias", "Right"),
-                       name = "Lateralization") +
+                       name = "Lateralisation") +
     scale_y_discrete(labels = levels(three_vars$ID)) +
     labs(x = "Estimate", y = "Individual ID") +
     theme_classic() +
@@ -349,15 +352,16 @@ X11(width = 7, height = 8)
           legend.text = element_text(size = 8),
           legend.title = element_text(size = 8),
           panel.grid.minor = element_line(color = "white"),
-          axis.title.x = element_text(margin = margin(t = 2))) + #increase distance between x-axis values and title
+          axis.title.x = element_text(margin = margin(t = 2)),
+          strip.text = element_text(size = 10)) + # Increase panel name size
     facet_wrap(~ variable, scales = "free_x", labeller = as_labeller(c(
       "mean_pitch_mean_z" = "Average pitch",
-      "abs_cum_yaw_z" = "Absolute cumulative yaw",
+      "abs_cum_yaw_z" = "Absolute total yaw",
       "wind_speed_z" = "Wind speed"
     )) # Separate panels for each variable
     ))
 
-ggsave(plot = coefs_inds, filename = "/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/paper_prep/MS2_laterality/figures/difficulty_model_ws_coeffs_inds_2min_plasma.pdf", 
+ggsave(plot = coefs_inds, filename = "/home/mahle68/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/paper_prep/MS2_laterality/figures/renamed_yaw/difficulty_model_ws_coeffs_inds_2min_plasma.pdf", 
        device = "pdf", width = 7, height = 8, dpi = 600)
 
 
@@ -389,7 +393,7 @@ X11(width = 7, height = 2)
       na.value = "white",
       name = "Probability\n of laterality") +
     guides(fill = guide_colourbar(title.vjust = 2.5)) + # the legend title needs to move up a bit
-    labs(x = "Absolute cumulative yaw", y = "Average pitch") +
+    labs(x = "Absolute total yaw", y = "Average pitch") +
     ggtitle("c") +
     theme_classic() +
     theme(plot.margin = margin(0, 6, 0, 0, "pt"),
@@ -436,7 +440,7 @@ pred_wy <- preds %>%
                        na.value = "white",
                        name = "Probability\n of laterality") +
   guides(fill = guide_colourbar(title.vjust = 2.5)) + # the legend title needs to move up a bit
-  labs(x = "Absolute cumulative yaw", y = "Wind speed") +
+  labs(x = "Absolute total yaw", y = "Wind speed") +
   ggtitle("d") +
   theme_classic() +
   theme(plot.margin = margin(0, 6, 0, 0, "pt"),
@@ -518,9 +522,11 @@ X11(width = 6.7, height = 2)
 combined <- pred_py + pred_wy + pred_wp & theme(legend.position = "right")
 (p <- combined + plot_layout(guides = "collect", nrow = 1))
 
-ggsave(plot = p, filename = "/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/paper_prep/MS2_laterality/figures/interactions_multi_panel.pdf", 
+ggsave(plot = p, filename = "/home/mahle68/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/paper_prep/MS2_laterality/figures/renamed_yaw/interactions_multi_panel.pdf", 
        device = "pdf", width = 6.7, height = 2, dpi = 600)
 
+#combine panels into a multi-panel figure:
+#https://theplosblog.plos.org/2019/12/multi-panel-figures-using-gimp-to-combine-individual-images-for-use-in-plos-articles/
 
 #-----------------------------------------------------------------------------------------------------------------------
 ## Step 5.2: Does laterality help with better performance when individuals are not experienced? migration performance #####
@@ -645,7 +651,7 @@ response_names <- c(
   expression(atop(bold("f") * phantom("                             "), "Daily distance (km)")),
   expression(atop(bold("g") * phantom("                                  "), "Max flight altitude (m)")),
   expression(atop(bold("h") * phantom("                        "), "Avg VeDBA (g)")), 
-  expression(atop(bold("i") * phantom("                                        "), "Avg cumulative yaw (deg)")), 
+  expression(atop(bold("i") * phantom("                               "), "Avg total yaw (deg)")), 
   expression(atop(bold("j") * phantom("                        "), "Avg pitch (deg)"))
 )
 
@@ -719,12 +725,12 @@ plots_ls <- lapply(1:length(response_vars), function(response){
 })
 
 #put all plots together
-X11(width = 6.7, height = 2.7)
+X11(width = 6.7, height = 2.5)
 combined <- reduce(plots_ls[1:5], `+`)
 (p <- combined + plot_layout(ncol = 3))
 
-ggsave(plot = p, filename = "/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/paper_prep/MS2_laterality/figures/migration_models_multi_panel_continuous_indID.pdf", 
-       device = "pdf", width = 6.7, height = 2.7, dpi = 600)
+ggsave(plot = p, filename = "/home/mahle68/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/paper_prep/MS2_laterality/figures/renamed_yaw/migration_models_multi_panel_continuous_indID.pdf", 
+       device = "pdf", width = 6.7, height = 2.5, dpi = 600)
 
 
 

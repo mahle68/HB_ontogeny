@@ -1,7 +1,6 @@
-#environmental annotation of imu data being used for the laterality paper
-#sub-step in L04_full_workflow.r 
-#14.10.2024 Konstanz, Germany
-#Elham Nourani. enourani@ab.mpg.de
+# script for downloading and preparing the wind data for Safi et al 2025.
+# each GPS point will be associated with the wind speed at that location in the closest hour
+# Elham Nourani, PhD. enourani@ab.mgp.de
 
 library(tidyverse)
 library(lubridate)
@@ -12,13 +11,33 @@ library(parallel)
 
 setwd("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/R_files/")
 
-#annotating data on movebank failed. even when smaller chunks of data were annotated and returned, many rows had NaN values.
-#Data download using CDS API also failed because I didn't manage to set up the new api key
-#So, data was downloaded from the CDS website, separately for each year
+#This step was done when CDS API was not functioning, so no code is provided for data download. The data were downloaded manually from the website (see download request at the end of script).
 
-#-----------------------------------------------------------------------------
-## Step 1: prepare tracking data #####
-#-----------------------------------------------------------------------------
+
+#---------------------------------------------------------------------------------
+## Step 0: Download all GPS data                                             #####
+#---------------------------------------------------------------------------------
+
+#Make sure you have set up your credentials following Move2 tutorials.
+#Data used in this study was downloaded on 15.04.2024. Use this timestamp as the cutoff point when downloading the data to reproduce the results of this study.
+
+#creds <- movebank_store_credentials(username = "your_user_name", rstudioapi::askForPassword())
+
+creds <- movebank_store_credentials(username = "mahle68", rstudioapi::askForPassword())
+HB_id <- movebank_get_study_id("European Honey Buzzard_Finland")
+
+movebank_retrieve(study_id = 2201086728, entity_type= "tag_type")
+
+gps <- movebank_retrieve(study_id = 2201086728, sensor_type_id = "gps",   #download data for all individuals 
+                         entity_type = "event",  attributes = "all",
+                         timestamp_end = as.POSIXct("2024-04-15 00:00:00"))
+
+#saveRDS(gps, file = "data/all_gps_apr15_24.rds")
+
+
+#---------------------------------------------------------------------------------
+## Step 1: prepare tracking data                                             #####
+#---------------------------------------------------------------------------------
 
 #open data filtered and matched with GPS in L04_full_workflow_r
 
