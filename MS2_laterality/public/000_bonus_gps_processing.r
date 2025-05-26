@@ -1,4 +1,8 @@
-#This code segments flight types for the European honey buzzards. based on my code: A01_GPS_prep.r
+#This code segments flight types for the European honey buzzards.
+#The resulting classification was not used in the final version of Safi et al 2025, but was very useful in data exploration. The code is therefore provided here in case readers would like to apply it to their
+#data. Please note that all soaring species have different nuances in their circling behavior. Adjust circl_deg to match your species.
+#This code was modified from original code by Martina Scacco 
+
 #Elham Nourani PhD.
 #Nov 6, 2023. Konstanz, DE
 

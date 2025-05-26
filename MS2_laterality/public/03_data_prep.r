@@ -43,7 +43,7 @@ incomplete <- c("D329_015", "D326_193", "D324_513", "D320_474", "D299_270", "D29
 #life-cycle stages from L03a_tests_per_day.r
 life_cycle <- readRDS("updated_life_cycle_nov24.rds") %>% 
   mutate(age_at_first_expl = (first_exploration - as.Date(deployment_dt_utc.x)) + 30,
-    in_natal = migration_start - first_exploration,
+         in_natal = migration_start - first_exploration,
          migr_dur = ifelse(individual_local_identifier %in% incomplete, NA, migration_end - migration_start)) %>% 
   summarize(in_natal_avg = mean(in_natal, na.rm = T),
             in_natal_min = min(in_natal, na.rm = T),
@@ -117,7 +117,8 @@ eight_sec <- or_seconds_8_sec_id %>%
             across(c(cumulative_yaw, cumulative_roll, cumulative_pitch, yaw_mean, roll_mean),
                    ~sum(., na.rm = T),
                    .names = "{.col}_sum_8sec"),
-            end_timestamp = tail(timestamp,1),
+            start_timestamp = head(timestamp, 1),
+            end_timestamp = tail(timestamp, 1),
             n_records = n(),
             bank_left = sum(bank_direction == "left"),
             bank_right = sum(bank_direction == "right"),
@@ -152,47 +153,29 @@ eight_sec <- or_seconds_8_sec_id %>%
 ## Step 2: Environmental annotation                                          #####
 #---------------------------------------------------------------------------------
 
-######THIS WAS MOVED TO THE PREVIOUS STEP#############
-#laterality_circling <- readRDS("laterality_index_per_8sec_burst_days_since.rds") %>% 
- 
-# laterality_circling <- eight_sec %>% #this doesnt have :n_records, days_since_tagging, and laterality_bank
-#   
-#   #FILTER: remove short bursts 
-#   filter(n_records >= 6) %>% 
-#   group_by(individual_local_identifier) %>%
-#   mutate(circling_status = case_when(
-#     between(cumulative_yaw_8sec, -10, 10) ~ "straight",
-#     cumulative_yaw_8sec >= 45 | cumulative_yaw_8sec <= -45 ~ "circling",
-#     .default = "shallow circling"
-#   )) %>% 
-#   mutate(laterality_dir = case_when(
-#     between(laterality_bank, 0.25, 1.0) ~ "right_handed",
-#     between(laterality_bank, -1.0, -0.25) ~ "left_handed",
-#     between(laterality_bank, -0.25, 0.25) ~ "ambidextrous",
-#     .default = NA)) %>% 
-#   mutate(laterality_bi = ifelse(laterality_dir == "ambidextrous", 0, 1), #create a binary variable for handedness vs not
-#          abs_cum_yaw = abs(cumulative_yaw_8sec)) %>% 
-#   as.data.frame()
+#to match wind conditions and IMU data, the intermediate step was to annotate the GPS locations with wind speed (02_wind_annotation.r)
+#in this step, the closest GPS point to each IMU burst will be identified and the wind speed associated with that point will now be associated with the IMU burst
 
 
-#open raw gps data, matched with wind in L04a_env_annotation.r
-
-gps_ls <- readRDS("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/data/all_gps_apr15_24_wind.rds") %>% 
+#open gps data, matched with wind in 02_wind_annotation.r (a list with one element per year) and create one dataframe
+#gps_ls <- readRDS("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/data/all_gps_apr15_24_wind.rds") %>% 
+gps_ls <- ann_ls %>% 
   mutate(individual_local_identifier = as.character(individual_local_identifier)) %>% 
   arrange(individual_local_identifier) %>% 
   group_by(individual_local_identifier) %>% 
   group_split() %>% 
   map(as.data.frame)
 
-#create a list of one element for each individual
-or_ls <- laterality_circling %>% 
+#create a list with one element for each individual
+#or_ls <- laterality_circling %>% 
+or_ls <- eight_sec %>% 
   mutate(individual_local_identifier = as.character(individual_local_identifier)) %>% 
   arrange(individual_local_identifier) %>% 
   group_by(individual_local_identifier) %>% 
   group_split() %>% 
   map(as.data.frame)
 
-# Define a function to find the closest GPS information and associate it with orientation data
+# Define a function to find the closest GPS information and associate it with orientation data. Please note that the column names are hard-coded. modify to match your data.
 find_closest_gps <- function(or_data, gps_data, time_tolerance = 60 * 60) {
   map_df(1:nrow(or_data), function(h) {
     or_row_time <- or_data[h, "start_timestamp"]
@@ -214,7 +197,9 @@ find_closest_gps <- function(or_data, gps_data, time_tolerance = 60 * 60) {
 }
 
 #make sure the order of individuals is the same in the two lists
-# Create a list of data frames with or data and associated GPS information
+identical(sapply(gps_ls, function(x) x$individual_local_identifier[1]), sapply(or_ls, function(x) x$individual_local_identifier[1])) #should return TRUE
+
+# Run the function on the list of gps and list of imu. This will create a list of data frames with or data and associated GPS information
 (b <- Sys.time())
 or_w_gps <- map2(or_ls, gps_ls, ~ find_closest_gps(or_data = .x, gps_data = .y))
 Sys.time() - b # 23 mins
@@ -237,7 +222,10 @@ no_gps <- or_w_gps_df %>%
 
 saveRDS(or_w_gps_df, file = "annotated_gps_w_wind.rds")
 
-#### ----------------------- add life-cycle stage and age
+#---------------------------------------------------------------------------------
+## Step 3: Life stage annotation                                             #####
+#---------------------------------------------------------------------------------
+
 #life-cycle stages from L03a_tests_per_day.r
 life_cycle <- readRDS("updated_life_cycle_nov24.rds")
 
@@ -249,20 +237,21 @@ or_w_gps_df_LS <- or_w_gps_df %>%
   filter(start_timestamp >= deployment_dt_utc) %>% 
   group_by(individual_local_identifier) %>% 
   rowwise() %>% 
-  mutate(life_stage = case_when(
-    between(unique_date, migration_start, migration_end) ~ "migration",
-    between(unique_date, first_exploration, migration_start) ~ "post-fledging",
-    unique_date < first_exploration ~ "pre-fledging",
-    unique_date > migration_end ~ "wintering",
-    TRUE ~ NA_character_
-  )) %>% 
+  mutate(days_since_tagging = floor(difftime(start_timestamp, deployment_dt_utc, unit = "days")),
+         life_stage = case_when(
+           between(unique_date, migration_start, migration_end) ~ "migration",
+           between(unique_date, first_exploration, migration_start) ~ "post-fledging",
+           unique_date < first_exploration ~ "pre-fledging",
+           unique_date > migration_end ~ "wintering",
+           TRUE ~ NA_character_
+         )) %>% 
   ungroup() %>% 
   as.data.frame()
 
 saveRDS(or_w_gps_df_LS, file = "laterality_w_gps_wind_LS_no_filter.rds")
 
 #---------------------------------------------------------------------------------
-## Step 3: Data filtering                                                    #####
+## Step 4: Data filtering                                                    #####
 #---------------------------------------------------------------------------------
 
 #open prepared data that has not been filtered yet.
@@ -289,9 +278,9 @@ or_w_gps_flt <- readRDS("laterality_w_gps_wind_LS_no_filter.rds") %>%
   as.data.frame()
 
 
-#-------------------------------------------------------------------------
-## Step 4: Calculate laterality index for days, life stages, and ind #####
-#-------------------------------------------------------------------------
+#---------------------------------------------------------------------------------
+## Step 5: Calculate laterality index for days, life stages, and inds        #####
+#---------------------------------------------------------------------------------
 
 filtered_w_LI <- or_w_gps_flt %>% 
   group_by(individual_local_identifier) %>% 
@@ -317,7 +306,7 @@ filtered_w_LI <- or_w_gps_flt %>%
   ungroup() %>% 
   select(-c(total_n, bank_left, bank_right, bank_straight)) %>% 
   
-  #------------------laterality index for life stage
+  #------------------laterality index for each life stage
   group_by(individual_local_identifier, life_stage) %>% 
   mutate(total_n = n(),
          bank_left = sum(bank_direction == "left"),
@@ -353,11 +342,5 @@ filtered_w_LI$laterality_dir_day <- factor(filtered_w_LI$laterality_dir_day, lev
 filtered_w_LI$laterality_dir_stage <- factor(filtered_w_LI$laterality_dir_stage, levels = c("right_handed", "ambidextrous", "left_handed"))
 
 saveRDS(filtered_w_LI, file = "thinned_laterality_w_gps_wind_all_filters2.rds")
-
-#-----------------------------------------------------------------------
-## Step 3: Distribution of laterality   (moved to plots)           #####
-#-----------------------------------------------------------------------
-
-
 
 

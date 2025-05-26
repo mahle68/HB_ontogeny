@@ -11,9 +11,6 @@ library(parallel)
 
 setwd("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/R_files/")
 
-#This step was done when CDS API was not functioning, so no code is provided for data download. The data were downloaded manually from the website (see download request at the end of script).
-
-
 #---------------------------------------------------------------------------------
 ## Step 0: Download all GPS data                                             #####
 #---------------------------------------------------------------------------------
@@ -39,11 +36,8 @@ gps <- movebank_retrieve(study_id = 2201086728, sensor_type_id = "gps",   #downl
 ## Step 1: prepare tracking data                                             #####
 #---------------------------------------------------------------------------------
 
-#open data filtered and matched with GPS in L04_full_workflow_r
 
-#or_w_gps_df <- readRDS("thinned_laterality_w_gps.rds") #2022-08-20 17:16:14.0000 to 2024-04-15 10:00:46.0000 
-
-all_gps_apr <- readRDS("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/data/all_gps_apr15_24.rds") %>%  #2022-09-25 07:56:41.0000 to 2024-04-15 10:02:33.0000
+all_gps_apr <- gps %>%  #2022-09-25 07:56:41.0000 to 2024-04-15 10:02:33.0000
   drop_na(individual_local_identifier, location_lat) %>% #remove NA individuals and NA locations.
   mutate(yr = year(timestamp),
          mn = month(timestamp),
@@ -53,19 +47,31 @@ all_gps_apr <- readRDS("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gw
          closest_hr = round(timestamp, units = "hours") %>% as.character()) %>% 
   as.data.frame()
 
+#split up the data based on year
 all_gps_ls <- split(all_gps_apr, all_gps_apr$yr)
 
-#---------------------------------------------------
-## Step 2: extract wind u and v for each point #####
-#---------------------------------------------------
+#---------------------------------------------------------------------------------
+## Step 2: extract wind u and v for each point                               #####
+#---------------------------------------------------------------------------------
+
+#This step was done when CDS API was not functioning, so no code is provided for data download. The data were downloaded manually from the website (see download request at the end of script).
+#one file was downloaded per year in the netcdf format
+
+#list the downloaded files
+nc_files <- list.files("path_to_your_files", pattern = ".nc", full.names = T)
+
+#decide on an output directory
+
+output_path <- "path_to_your_output_dir/"
 
 #list nc files
-nc_files <- list.files("/home/mahle68/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/data/laterality_annotations/WIND_FROM_CDS",
-                       pattern = ".nc", full.names = T)
+#nc_files <- list.files("/home/mahle68/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/data/laterality_annotations/WIND_FROM_CDS",
+#                       pattern = ".nc", full.names = T)
 
-output_path <- "/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/data/all_gps_apr24_wind_annotated/"
+#output_path <- "/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/data/all_gps_apr24_wind_annotated/"
 
-(st_time <- Sys.time())
+#go over each nc file one by one
+
 lapply(all_gps_ls, function(x){
   
   #extract the year
@@ -94,7 +100,6 @@ lapply(all_gps_ls, function(x){
   #from the two layers that would otherwise have the same name (ie. the timestamp)
   names(u) <- paste0("u_900_", timestamp)
   names(v) <- paste0("v_900_", timestamp)
-  
   
   ########### split the tracking data into unique hours #####
   
@@ -135,8 +140,6 @@ lapply(all_gps_ls, function(x){
                v_900 = as.numeric(NA))
     }
     
-    #saveRDS(y_df, paste0("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/data/all_gps_apr24_wind_annotated/by_hr_2022/wind_ann", unique_hr, ".rds" ))
-    
     rm(wind, y)
     
     y_df
@@ -144,26 +147,24 @@ lapply(all_gps_ls, function(x){
   }, mc.cores = num_cores) %>% 
     bind_rows()
   
-  
-  
-  saveRDS(wind_this_yr, file = paste0(output_path,"gps_annotated_", yr, ".rds")) #had some issues with 2022 so had to do it in two batches.
+  saveRDS(wind_this_yr, file = paste0(output_path,"gps_annotated_", yr, ".rds"))
   
 })
-Sys.time() - st_time #1.8 hours for three years
+ #1.8 hours for three years
 
+#---------------------------------------------------------------------------------
+## Step 3: put all files together and calculate wind speed                   #####
+#---------------------------------------------------------------------------------
 
-#---------------------------------------------------------------
-## Step 3: put all files together and calculate wind speed #####
-#---------------------------------------------------------------
-
-ann_ls <- list.files("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/data/all_gps_apr24_wind_annotated", full.names = T) %>% 
+ann_ls <- list.files("path_to_your_output_dir/", full.names = T) %>% 
   map(readRDS) %>% 
   map(bind_rows) %>% 
   bind_rows() %>% 
   select(1:48) %>% 
   mutate(wind_speed =  sqrt(u_900^2 + v_900^2))
 
-saveRDS(ann_ls, file = "/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/data/all_gps_apr15_24_wind.rds")
+
+#saveRDS(ann_ls, file = "/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/data/all_gps_apr15_24_wind.rds")
 
 #----------------------------------------------------- 
 # ## This step was done by downloading the data from the gui with the following request. The same request can be made through the API
