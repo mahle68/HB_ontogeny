@@ -11,4 +11,5 @@ The following scripts are included
 000_bonus_gps_processing.r 
 
 The following datasets are being made available through the Edmond repository xyz
-updated_life_cycle_nov24.rds includes the meta-data for each individual, including the timing of start of different life stages
+"updated_life_cycle_nov24.rds" includes the meta-data for each individual, including the timing of start of different life stages
+"thinned_laterality_w_gps_wind_all_filters2_public_prep.rds" includes the dataset ready for modeling

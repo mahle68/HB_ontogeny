@@ -12,10 +12,10 @@ library(terra)
 
 setwd("/home/mahle68/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/R_files/")
 
-#---------------------------------------------------------------------
-## Step 4: Is laterality more likely when the task is difficult? #####
-#---------------------------------------------------------------------
-#logistic regression: handedness ~ tightness of circles * age . maybe only for individuals with laterality
+#---------------------------------------------------------------------------------
+## Step 1: Is laterality more likely when the task is difficult?             #####
+#---------------------------------------------------------------------------------
+
 #read in filtered data. this is not filtered for days since tagging
 filtered_w_LI <- readRDS("thinned_laterality_w_gps_wind_all_filters2.rds")
 
@@ -42,37 +42,6 @@ circling_data %>%
   correlate() %>% 
   corrr::stretch() %>% 
   filter(abs(r) > 0.5) #sd of roll and pitch = 0.64; sd of yaw and cumulative yaw = 0.7. age and latitude = -0.773
-
-#### ----------------------- exploratory plot
-ggplot(circling_data, aes(x = factor(laterality_bi), y = abs(cumulative_yaw_8sec))) +
-  geom_boxplot() +
-  labs(x = "Laterality", y = "Absolute Cumulative Yaw (8 sec)") +
-  theme_minimal()
-
-ggplot(circling_data, aes(x = factor(laterality_dir), y = days_since_tagging)) +
-  geom_boxplot() +
-  labs(x = "Laterality", y = "") +
-  theme_minimal()
-
-
-#compare n and s hemisphere
-ggplot(circling_data, aes(x = factor(laterality_dir), y = location_lat_closest_gps_raw)) +
-  geom_boxplot() +
-  labs(x = "Laterality", y = "latitude") +
-  theme_minimal()
-
-ggplot(circling_data, aes(x = days_since_tagging, y = abs(cumulative_yaw_8sec))) +
-  geom_point() + 
-  geom_smooth(method = "lm")
-
-ggplot(circling_data, aes(x = days_since_tagging, y = location_lat_closest_gps_raw)) +
-  geom_point() + 
-  geom_smooth(method = "lm")
-
-ggplot(circling_data, aes(x = days_since_tagging, y = laterality_bank)) +
-  geom_point() + 
-  geom_smooth(method = "lm")
-
 
 #### ----------------------- model: binomial logistic regression with inla
 
@@ -528,9 +497,9 @@ ggsave(plot = p, filename = "/home/mahle68/ownCloud - enourani@ab.mpg.de@ownclou
 #combine panels into a multi-panel figure:
 #https://theplosblog.plos.org/2019/12/multi-panel-figures-using-gimp-to-combine-individual-images-for-use-in-plos-articles/
 
-#-----------------------------------------------------------------------------------------------------------------------
-## Step 5.2: Does laterality help with better performance when individuals are not experienced? migration performance #####
-#-----------------------------------------------------------------------------------------------------------------------
+#---------------------------------------------------------------------------------
+## Step 2: Does laterality impact migration performance?                     #####
+#---------------------------------------------------------------------------------
 
 #### data prep -----------------------------------------------------------------------------
 

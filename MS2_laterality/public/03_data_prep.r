@@ -3,64 +3,8 @@
 
 library(tidyverse)
 library(lubridate)
-library(sf)
-library(ggridges)
-library(mapview)
-library(viridis)
-library(lme4)
-library(mgcv)
-library(mgcViz)
-library(INLA)
-library(terra)
-library(performance)
-library(corrr)
-library(gridExtra)
-library(patchwork)
-library(rptR)
-library(xtable) #for exporting latex tables
-library(ggh4x) # devtools::install_github("teunbrand/ggh4x") #allows modifying colors of facets in ggplot
 
 setwd("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/R_files/")
-
-#source the imu conversion functions. do i need these here?
-#source("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/HB_ontogeny/MS1_IMU_classification/00_imu_diy.r")
-
-#create a funciton for mode
-getmode <- function(v) {
-  uniqv <- unique(v)
-  uniqv[which.max(tabulate(match(v, uniqv)))]
-}
-
-#---------------------------------------------------------------------------------
-## Step 0: Life cycle descriptive summaries                                  #####
-#---------------------------------------------------------------------------------
-#to be reported in the paper
-
-#individuals with incomplete tracks
-
-incomplete <- c("D329_015", "D326_193", "D324_513", "D320_474", "D299_270", "D299_269", "D225_236")
-
-#life-cycle stages from L03a_tests_per_day.r
-life_cycle <- readRDS("updated_life_cycle_nov24.rds") %>% 
-  mutate(age_at_first_expl = (first_exploration - as.Date(deployment_dt_utc.x)) + 30,
-         in_natal = migration_start - first_exploration,
-         migr_dur = ifelse(individual_local_identifier %in% incomplete, NA, migration_end - migration_start)) %>% 
-  summarize(in_natal_avg = mean(in_natal, na.rm = T),
-            in_natal_min = min(in_natal, na.rm = T),
-            in_natal_max = max(in_natal, na.rm = T),
-            in_natal_sd = sd(in_natal, na.rm = T),
-            migr_dur_avg = min(migr_dur, na.rm = T),
-            migr_dur_min = mean(migr_dur, na.rm = T),
-            migr_dur_max = max(migr_dur, na.rm = T),
-            migr_dur_sd = sd(migr_dur, na.rm = T))
-
-#tracking duration
-#open data from step 4 below
-filtered_w_LI <- readRDS("thinned_laterality_w_gps_wind_all_filters.rds")
-
-mean(filtered_w_LI$days_since_tagging)
-sd(filtered_w_LI$days_since_tagging)
-IQR(filtered_w_LI$days_since_tagging)
 
 #---------------------------------------------------------------------------------
 ## Step 1: Summarize per 8-sec burst                                         #####
@@ -341,3 +285,31 @@ saveRDS(filtered_w_LI, file = "thinned_laterality_w_gps_wind_all_filters2_public
 #saveRDS(filtered_w_LI, file = "thinned_laterality_w_gps_wind_all_filters2.rds")
 
 
+#---------------------------------------------------------------------------------
+## Step 6: Life stage descriptive summaries                                  #####
+#---------------------------------------------------------------------------------
+#to be reported in the paper
+
+#individuals with incomplete tracks
+incomplete <- c("D329_015", "D326_193", "D324_513", "D320_474", "D299_270", "D299_269", "D225_236")
+
+#life-cycle stages from L03a_tests_per_day.r
+life_cycle <- readRDS("updated_life_cycle_nov24.rds") %>% 
+  mutate(age_at_first_expl = (first_exploration - as.Date(deployment_dt_utc.x)) + 30,
+         in_natal = migration_start - first_exploration,
+         migr_dur = ifelse(individual_local_identifier %in% incomplete, NA, migration_end - migration_start)) %>% 
+  summarize(in_natal_avg = mean(in_natal, na.rm = T),
+            in_natal_min = min(in_natal, na.rm = T),
+            in_natal_max = max(in_natal, na.rm = T),
+            in_natal_sd = sd(in_natal, na.rm = T),
+            migr_dur_avg = min(migr_dur, na.rm = T),
+            migr_dur_min = mean(migr_dur, na.rm = T),
+            migr_dur_max = max(migr_dur, na.rm = T),
+            migr_dur_sd = sd(migr_dur, na.rm = T))
+
+#tracking duration
+filtered_w_LI <- readRDS("thinned_laterality_w_gps_wind_all_filters2_public_prep.rds")
+
+mean(filtered_w_LI$days_since_tagging)
+sd(filtered_w_LI$days_since_tagging)
+IQR(filtered_w_LI$days_since_tagging)

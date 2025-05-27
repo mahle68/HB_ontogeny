@@ -6,10 +6,6 @@
 library(move2)
 library(tidyverse)
 library(lubridate)
-library(mapview)
-library(parallel)
-library(sf)
-library(circular)
 
 #setwd("/home/mahle68/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/R_files/")
 
@@ -179,3 +175,34 @@ seconds_summaries <- or_seconds %>%
   as.data.frame()
 
 saveRDS(seconds_summaries, file = "quat_summaries_1sec_Jul24.rds")
+
+
+#sessionInfo()
+# R version 4.5.0 (2025-04-11)
+# Platform: x86_64-pc-linux-gnu
+# Running under: Ubuntu 22.04.5 LTS
+# 
+# locale:
+# [1] LC_CTYPE=en_US.UTF-8       LC_NUMERIC=C               LC_TIME=en_US.UTF-8        LC_COLLATE=en_US.UTF-8     LC_MONETARY=en_US.UTF-8    LC_MESSAGES=en_US.UTF-8    LC_PAPER=en_US.UTF-8      
+# [8] LC_NAME=C                  LC_ADDRESS=C               LC_TELEPHONE=C             LC_MEASUREMENT=en_US.UTF-8 LC_IDENTIFICATION=C       
+# 
+# time zone: Europe/Berlin
+# tzcode source: system (glibc)
+# 
+# attached base packages:
+# [1] stats     graphics  grDevices utils     datasets  methods   base     
+# 
+# other attached packages:
+# [1] xtable_1.8-4    patchwork_1.3.0 INLA_24.12.11   Matrix_1.7-3    terra_1.8-42    mapview_2.11.2  sf_1.0-20       move2_0.4.4     lubridate_1.9.4 forcats_1.0.0   stringr_1.5.1   dplyr_1.1.4    
+# [13] purrr_1.0.4     readr_2.1.5     tidyr_1.3.1     tibble_3.2.1    ggplot2_3.5.2   tidyverse_2.0.0
+# 
+# loaded via a namespace (and not attached):
+# [1] tidyselect_1.2.1        farver_2.1.2            filelock_1.0.3          fastmap_1.2.0           leaflet_2.2.2           digest_0.6.37           timechange_0.3.0        lifecycle_1.0.4        
+# [9] magrittr_2.0.3          compiler_4.5.0          rlang_1.1.6             tools_4.5.0             yaml_2.3.10             askpass_1.2.1           labeling_0.4.3          htmlwidgets_1.6.4      
+# [17] bit_4.6.0               sp_2.2-0                classInt_0.4-11         curl_6.2.2              RColorBrewer_1.1-3      pkgload_1.4.0           KernSmooth_2.23-26      withr_3.0.2            
+# [25] grid_4.5.0              stats4_4.5.0            e1071_1.7-16            leafem_0.2.4            scales_1.4.0            cli_3.6.5               crayon_1.5.3            ragg_1.4.0             
+# [33] generics_0.1.3          rstudioapi_0.17.1       tzdb_0.5.0              DBI_1.2.3               sodium_1.4.0            proxy_0.4-27            splines_4.5.0           assertthat_0.2.1       
+# [41] parallel_4.5.0          base64enc_0.1-3         vctrs_0.6.5             jsonlite_2.0.0          hms_1.1.3               bit64_4.6.0-1           corrr_0.4.4             systemfonts_1.2.3      
+# [49] crosstalk_1.2.1         jquerylib_0.1.4         units_0.8-7             keyring_1.3.2           glue_1.8.0              codetools_0.2-19        leaflet.providers_2.0.0 stringi_1.8.7          
+# [57] gtable_0.3.6            raster_3.6-32           pillar_1.10.2           rappdirs_0.3.3          htmltools_0.5.8.1       satellite_1.0.5         R6_2.6.1                fmesher_0.3.0          
+# [65] textshaping_1.0.1       vroom_1.6.5             lattice_0.22-5          png_0.1-8               class_7.3-23            MatrixModels_0.5-4      Rcpp_1.0.14             pkgconfig_2.0.3 
