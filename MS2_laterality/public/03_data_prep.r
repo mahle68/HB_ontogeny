@@ -145,7 +145,7 @@ eight_sec <- or_seconds_8_sec_id %>%
   mutate(laterality_bi = ifelse(laterality_dir == "ambidextrous", 0, 1), 
          abs_cum_yaw = abs(cumulative_yaw_sum_8sec)) %>% 
   as.data.frame()
-(Sys.time() - start_time) #37 minutes
+(Sys.time() - start_time) #45 minutes
 
 #saveRDS(eight_sec, file = "matched_GPS_IMU/GPS_matched_or_w_summaries_8sec.rds")
 
@@ -204,7 +204,7 @@ identical(sapply(gps_ls, function(x) x$individual_local_identifier[1]), sapply(o
 or_w_gps <- map2(or_ls, gps_ls, ~ find_closest_gps(or_data = .x, gps_data = .y))
 Sys.time() - b # 23 mins
 
-#add a column comparing or and gps timestamps. then save one file per individual.
+#add a column comparing or and gps timestamps.
 or_w_gps_df <- lapply(or_w_gps, function(x){
   x2 <- x %>% 
     mutate(imu_gps_timediff_sec = if_else(is.na(timestamp_closest_gps_raw), NA, difftime(start_timestamp, timestamp_closest_gps_raw, units = "mins") %>%  as.numeric()))
@@ -212,15 +212,10 @@ or_w_gps_df <- lapply(or_w_gps, function(x){
 }) %>% 
   bind_rows()
 
-sum(is.na(or_w_gps_df$location_long_closest_gps_raw)) #406
-sum(is.na(or_w_gps_df$start_location_long_closest_gps)) #6940
+sum(is.na(or_w_gps_df$location_long_closest_gps_raw)) #8573 there are still some rows that don't get assigned a gps location
 
-
-#there are still many rows with no assigned gps
-no_gps <- or_w_gps_df %>% 
-  filter(is.na(timestamp_closest_gps_raw))
-
-saveRDS(or_w_gps_df, file = "annotated_gps_w_wind.rds")
+#remove the rows with no assigned gps
+saveRDS(or_w_gps_df, file = "annotated_gps_w_wind_public_prep.rds")
 
 #---------------------------------------------------------------------------------
 ## Step 3: Life stage annotation                                             #####
@@ -229,8 +224,8 @@ saveRDS(or_w_gps_df, file = "annotated_gps_w_wind.rds")
 #life-cycle stages from L03a_tests_per_day.r
 life_cycle <- readRDS("updated_life_cycle_nov24.rds")
 
+#add age as days since tagging, and assign life stage based on HMM analysis
 or_w_gps_df_LS <- or_w_gps_df %>% 
-  select(-deployment_dt_utc) %>% #remove deployment in the dataset and just use the one in life_cycle, which is from the metadata
   mutate(unique_date = as.Date(start_timestamp)) %>% 
   full_join(life_cycle %>% select(individual_local_identifier, deployment_dt_utc, first_exploration, migration_start, migration_end), by = "individual_local_identifier") %>% 
   #remove data before deployment
@@ -248,7 +243,7 @@ or_w_gps_df_LS <- or_w_gps_df %>%
   ungroup() %>% 
   as.data.frame()
 
-saveRDS(or_w_gps_df_LS, file = "laterality_w_gps_wind_LS_no_filter.rds")
+#saveRDS(or_w_gps_df_LS, file = "laterality_w_gps_wind_LS_no_filter.rds")
 
 #---------------------------------------------------------------------------------
 ## Step 4: Data filtering                                                    #####
@@ -256,13 +251,13 @@ saveRDS(or_w_gps_df_LS, file = "laterality_w_gps_wind_LS_no_filter.rds")
 
 #open prepared data that has not been filtered yet.
 #levels of filtering:
-#1) only keep circling flight (MUST do before LI calculations)
-#2) thin the data, so that the consecutive bursts are at least 2 min apart.. (MUST do before LI calculations)
-#only keep data after fledging
-#only keep first 300 days
+#1) only keep circling flight (MUST do before LI calculations at the daily, life stage, and individual levels)
+#2) thin the data, so that the consecutive bursts are at least 2 min apart. (MUST do before LI calculations)
+#3)only keep data after fledging
 
 
-or_w_gps_flt <- readRDS("laterality_w_gps_wind_LS_no_filter.rds") %>% 
+or_w_gps_flt <- or_w_gps_df_LS%>% 
+  
   #FILTER: remove non-circling bursts
   filter(circling_status == "circling") %>% 
   #calculate time lag between remaining bursts
@@ -271,8 +266,10 @@ or_w_gps_flt <- readRDS("laterality_w_gps_wind_LS_no_filter.rds") %>%
   mutate(time_lag_sec = if_else(row_number() == 1, 0, 
                                 difftime(start_timestamp, lag(start_timestamp), units = "secs") %>% as.numeric())) %>% 
   ungroup() %>% 
-  #FILTER: thin the data, so that the consecutive bursts are at least 2 min apart.. for consistency
+  
+  #FILTER: thin the data, so that the consecutive bursts are at least 2 min apart
   filter(time_lag_sec >= 120) %>% 
+  
   #FILTER: filter out pre-fledging
   filter(life_stage != "pre-fledging") %>% 
   as.data.frame()
@@ -287,9 +284,7 @@ filtered_w_LI <- or_w_gps_flt %>%
   arrange(days_since_tagging, .by_group = T) %>% 
   mutate(weeks_since_tagging = ceiling(days_since_tagging/7),  #not all individuals have a week 1. 
          bank_direction = ifelse(mean_roll_mean < 0, "left",
-                                 ifelse(mean_roll_mean > 0, "right", "straight")),
-         heading_direction = ifelse(cumulative_yaw_8sec < 0, "left",
-                                    ifelse(cumulative_yaw_8sec > 0, "right", "straight"))) %>% 
+                                 ifelse(mean_roll_mean > 0, "right", "straight"))) %>% 
   ungroup() %>% 
   
   #------------------laterality index for each day
@@ -341,6 +336,8 @@ filtered_w_LI <- or_w_gps_flt %>%
 filtered_w_LI$laterality_dir_day <- factor(filtered_w_LI$laterality_dir_day, levels = c("right_handed", "ambidextrous", "left_handed"))
 filtered_w_LI$laterality_dir_stage <- factor(filtered_w_LI$laterality_dir_stage, levels = c("right_handed", "ambidextrous", "left_handed"))
 
-saveRDS(filtered_w_LI, file = "thinned_laterality_w_gps_wind_all_filters2.rds")
+saveRDS(filtered_w_LI, file = "thinned_laterality_w_gps_wind_all_filters2_public_prep.rds")
+
+#saveRDS(filtered_w_LI, file = "thinned_laterality_w_gps_wind_all_filters2.rds")
 
 
