@@ -36,7 +36,6 @@ gps <- movebank_retrieve(study_id = 2201086728, sensor_type_id = "gps",   #downl
 ## Step 1: prepare tracking data                                             #####
 #---------------------------------------------------------------------------------
 
-
 all_gps_apr <- gps %>%  #2022-09-25 07:56:41.0000 to 2024-04-15 10:02:33.0000
   drop_na(individual_local_identifier, location_lat) %>% #remove NA individuals and NA locations.
   mutate(yr = year(timestamp),

@@ -1,4 +1,5 @@
 # script for preparing the data for Safi et al 2025.
+# this script prepares the IMU data (8-second bursts) for analysis in 04_data_analysis.r
 # Elham Nourani, PhD. enourani@ab.mgp.de
 
 library(tidyverse)
@@ -313,3 +314,4 @@ filtered_w_LI <- readRDS("thinned_laterality_w_gps_wind_all_filters2_public_prep
 mean(filtered_w_LI$days_since_tagging)
 sd(filtered_w_LI$days_since_tagging)
 IQR(filtered_w_LI$days_since_tagging)
+

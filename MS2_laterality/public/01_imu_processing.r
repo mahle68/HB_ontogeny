@@ -87,6 +87,12 @@ acc_g <- readRDS("all_acceleration_g_apr_24.rds") %>%
   select(-DBA_ls) %>% 
   as.data.frame()
 
+#save the file. This data will be used in script 03b_data_prep_days.r to calculate daily VeDBA
+saveRDS(acc_g, "your_path/your_processed_acc_data.rds")
+
+#saveRDS(acc_g, "all_acceleration_g_dba_apr_24.rds")
+
+
 #---------------------------------------------------------------------------------
 ## Step 2: Process the Quaternions (calculate Euler angles)                  #####
 #---------------------------------------------------------------------------------

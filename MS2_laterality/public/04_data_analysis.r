@@ -1,23 +1,23 @@
-# script for analzing the data for Safi et al 2025 (follows from 01_data_prep.r)
+# script for analyzing the data for Safi et al 2025
+# Data analysis is done at two scales: 8-second bursts (year-round) and daily (only during migration)
 # Elham Nourani, PhD. enourani@ab.mgp.de
 
 library(tidyverse)
-library(INLA)
-library(patchwork)
-library(xtable)
 library(corrr)
+library(INLA)
 library(gridExtra)
 library(patchwork)
 library(terra)
+library(xtable)
 
-setwd("/home/mahle68/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/R_files/")
+setwd("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/R_files/")
 
 #---------------------------------------------------------------------------------
 ## Step 1: Is laterality more likely when the task is difficult?             #####
 #---------------------------------------------------------------------------------
 
 #read in filtered data. this is not filtered for days since tagging
-filtered_w_LI <- readRDS("thinned_laterality_w_gps_wind_all_filters2.rds")
+filtered_w_LI <- readRDS("thinned_laterality_w_gps_wind_all_filters2_public_prep.rds")
 
 
 #### ----------------------- filter for day since tagging and z-transform
@@ -32,7 +32,7 @@ circling_data <- filtered_w_LI %>%
             list(z = ~scale(.))) %>% 
   as.data.frame()
 
-saveRDS(circling_data, file = "thinned_laterality_for_modeling5.rds")
+#saveRDS(circling_data, file = "thinned_laterality_for_modeling5.rds")
 
 #### ----------------------- look at multi-collinearity
 
@@ -41,11 +41,11 @@ circling_data %>%
                   "abs_cum_yaw", "days_since_tagging", "wind_speed", "location_lat_closest_gps_raw")) %>% 
   correlate() %>% 
   corrr::stretch() %>% 
-  filter(abs(r) > 0.5) #sd of roll and pitch = 0.64; sd of yaw and cumulative yaw = 0.7. age and latitude = -0.773
+  filter(abs(r) > 0.5) #correlated variables: sd of roll and pitch, sd of yaw and cumulative yaw, age and latitude
 
 #### ----------------------- model: binomial logistic regression with inla
 
-circling_data <- readRDS("thinned_laterality_for_modeling4.rds")
+#circling_data <- readRDS("thinned_laterality_for_modeling4.rds")
 
 #create new data: make predictions for values that fall on a regular grid for optimal visualization 
 
@@ -102,7 +102,7 @@ data$life_stage <- factor(data$life_stage, levels = c("post-fledging", "migratio
 
 #saveRDS(data, file = "thinned_laterality_for_modeling_w_new_data4.rds")
 
-data <- readRDS("thinned_laterality_for_modeling_w_new_data4.rds")
+#data <- readRDS("thinned_laterality_for_modeling_w_new_data4.rds")
 
 m_inla <- inla(laterality_bi ~ 1 + mean_pitch_mean_z * abs_cum_yaw_z * wind_speed_z + 
                  f(individual_local_identifier, mean_pitch_mean_z, model = "iid") +  
@@ -115,27 +115,11 @@ m_inla <- inla(laterality_bi ~ 1 + mean_pitch_mean_z * abs_cum_yaw_z * wind_spee
 
 #### model evaluation -----------------------
 
-#look at residuals
-residuals <- data$laterality_bi - m_inla$summary.fitted.values$mean
-plot(residuals)
-
-#calculate variance explained: McFadden's pseudo R²
-log_likelihood_full <- m_inla$mlik[1, 1]
-
-null_model <- inla(laterality_bi ~ 1, family = "binomial",
-                   control.compute = list(cpo = TRUE),
-                   control.predictor = list(link = 1, compute = TRUE),
-                   data = data)
-
-log_likelihood_null <- null_model$mlik[1, 1]
-
-pseudo_r_squared <- 1 - (log_likelihood_full / log_likelihood_null) #0.006
-
 #model validation metrics
-eval <- data.frame(CPO = mean(m_inla$cpo$cpo, na.rm = T), # 0.52
-                   Mlik = as.numeric(m_inla$mlik[,1][2])) # -13050.66
+eval <- data.frame(CPO = mean(m_inla$cpo$cpo, na.rm = T), # 0.51
+                   Mlik = as.numeric(m_inla$mlik[,1][2])) # -12951.97
 
-#### coefficients plot -----------------------------------------------------------------------------
+#### coefficients plot (Fig 3 a) -----------------------------------------------------------------------------
 
 # posterior means of coefficients
 graph <- as.data.frame(summary(m_inla)$fixed)
@@ -152,8 +136,6 @@ VarNames <- VarOrder
 
 graph$Factor <- factor(graph$Factor, levels = VarOrder)
 levels(graph$Factor) <- VarNames
-
-#graph$Factor_n <- as.numeric(graph$Factor)
 
 #plot the coefficients
 X11(width = 3.2, height = 2)
@@ -177,14 +159,11 @@ X11(width = 3.2, height = 2)
           axis.title.x = element_text(margin = margin(t = 2))) #increase distance between x-axis values and title
 )
 
-ggsave(plot = coefs, filename = "/home/mahle68/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/paper_prep/MS2_laterality/figures/renamed_yaw/difficulty_model_ws_coeffs_2min.pdf", 
-       device = "pdf", width = 7, height = 4, dpi = 600)
 
-
-#### plot the smooth term -----------------------------------------------------------------------------
+#### plot the smooth term (Fig 3 b) -----------------------------------------------------------------------------
 
 # average start and end of migration... to add to the plot
-population_migr_period <- readRDS("thinned_laterality_for_modeling4.rds") %>% 
+population_migr_period <- filtered_w_LI %>% 
   filter(life_stage == "migration") %>% 
   group_by(individual_local_identifier) %>% 
   arrange(start_timestamp, .by_group = T) %>% 
@@ -200,7 +179,6 @@ population_migr_period <- readRDS("thinned_laterality_for_modeling4.rds") %>%
   as.data.frame()
 
 
-
 # Extract the summary of the smooth term 
 smooth_effects <- m_inla$summary.random$age_group %>% 
   #back transform the age values
@@ -208,7 +186,7 @@ smooth_effects <- m_inla$summary.random$age_group %>%
            attr(data[,colnames(data) == "days_since_tagging_z"],'scaled:center') )
 
 # Plot the smooth term....
-X11(width = 3.42, height = 3)
+X11(width = 3.42, height = 2)
 (s <- ggplot(smooth_effects, aes(x = age, y = mean)) +
     #geom_rect(data = population_migr_period, aes(xmin = xmin, xmax = xmax, ymin = ymin, ymax = ymax), 
     #          fill="black", alpha=0.1, inherit.aes = FALSE) + #add migration period
@@ -231,22 +209,11 @@ X11(width = 3.42, height = 3)
           axis.title.x = element_text(margin = margin(t = 2)))
 )
 
-
-#combine the two plots for the linear and the non-linear terms
-#X11(width = 9, height = 3)
-#model_output_p <- grid.arrange(coefs, s, nrow = 1, widths = c(0.6, 0.4))
-
-#ggsave(plot = model_output_p, filename = "/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/paper_prep/MS2_laterality/figures/difficulty_model_ws_output_2min.pdf", 
-#       device = "pdf", width = 9, height = 3, dpi = 600)
-
 #combine the two plots to make the multi-panel plot for all models
 X11(width = 6.7, height = 2)
 model_output_p <- grid.arrange(coefs, s, nrow = 1, widths = c(0.6, 0.4))
 
-ggsave(plot = model_output_p, filename = "/home/mahle68/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/paper_prep/MS2_laterality/figures/renamed_yaw/difficulty_model_multi_panel.pdf", 
-       device = "pdf", width = 6.7, height = 2, dpi = 600)
-
-#### ind_specific coefficients plot -----------------------------------------------------------------------------
+#### individual-specific coefficients plot (Extended Data Fig 1) -----------------------------------------------------------------------------
 
 #extract handedness for each individual. to use for coloring. 
 handedness <- circling_data %>% 
@@ -330,11 +297,7 @@ X11(width = 7, height = 8)
     )) # Separate panels for each variable
     ))
 
-ggsave(plot = coefs_inds, filename = "/home/mahle68/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/paper_prep/MS2_laterality/figures/renamed_yaw/difficulty_model_ws_coeffs_inds_2min_plasma.pdf", 
-       device = "pdf", width = 7, height = 8, dpi = 600)
-
-
-#### plot the interaction terms -----------------------------------------------------------------------------
+#### plot the interaction terms (Fig 3 c-e) -----------------------------------------------------------------------------
 
 ## yaw:pitch----------------------------------------------------------------
 #extract information for rows that had NAs as response variables
@@ -350,7 +313,7 @@ preds <- data.frame(yaw = data[na_rows,"abs_cum_yaw"],
   rename(preds = focal_mean)
 
 #plot
-X11(width = 7, height = 2)
+
 (pred_py <- preds %>% 
     ggplot() +
     geom_tile(aes(x = x, y = y, fill = preds)) +
@@ -380,9 +343,6 @@ X11(width = 7, height = 2)
     scale_y_continuous(expand = c(0, 0))
 )
 
-#ggsave(plot = pred_py, filename = "/home/mahle68/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/paper_prep/MS2_laterality/figures/yaw_pitch.png", 
-#       device = "png", width = 7, height = 2.1, dpi = 600)
-
 
 
 ## wind:yaw----------------------------------------------------------------
@@ -399,7 +359,7 @@ preds <- data.frame(yaw = data[na_rows,"abs_cum_yaw"],
   rename(preds = focal_mean)
 
 #plot
-#X11(width = 7, height = 2)
+
 pred_wy <- preds %>% 
   ggplot() +
   geom_tile(aes(x = x, y = y, fill = preds)) +
@@ -426,9 +386,6 @@ pred_wy <- preds %>%
   scale_x_continuous(expand = c(0, 0)) + #remove space between the raster and the axis
   scale_y_continuous(expand = c(0, 0))
 
-#ggsave(plot = pred_wy, filename = "/home/mahle68/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/paper_prep/MS2_laterality/figures/wind_yaw.png", 
-#       device = "png", width = 7, height = 2.1, dpi = 600)
-
 
 
 ##wind:pitch----------------------------------------------------------------
@@ -446,7 +403,7 @@ preds <- data.frame(pitch = data[na_rows,"mean_pitch_mean"],
   rename(preds = focal_mean)
 
 #plot
-#X11(width = 2.23, height = 1.67)
+
 pred_wp <- preds %>% 
   ggplot() +
   geom_tile(aes(x = x, y = y, fill = preds)) +
@@ -473,26 +430,11 @@ pred_wp <- preds %>%
   scale_x_continuous(expand = c(0, 0)) + #remove space between the raster and the axis
   scale_y_continuous(expand = c(0, 0))
 
-#ggsave(plot = pred_wp, filename = "/home/mahle68/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/paper_prep/MS2_laterality/figures/wind_pitch.png", 
-#       device = "png", width = 7, height = 2.1, dpi = 600)
 
-
-
-#combine the three plots for the coefficients and the interaction term-------------- VERTICAL
-#X11(width = 4.5, height = 6.5)
-#combined <- pred_py + pred_wy + pred_wp & theme(legend.position = "bottom")
-#(p <- combined + plot_layout(guides = "collect", nrow = 3))
-
-#ggsave(plot = p, filename = "/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/paper_prep/MS2_laterality/figures/difficulty_model_ws_interactions_2min.pdf", 
-#       device = "pdf", width = 4.5, height = 6.5, dpi = 600)
-
-#combine the three plots. horizontal
+#combine the three plots for the coefficients and the interaction term-------------- horizontal
 X11(width = 6.7, height = 2)
 combined <- pred_py + pred_wy + pred_wp & theme(legend.position = "right")
 (p <- combined + plot_layout(guides = "collect", nrow = 1))
-
-ggsave(plot = p, filename = "/home/mahle68/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/paper_prep/MS2_laterality/figures/renamed_yaw/interactions_multi_panel.pdf", 
-       device = "pdf", width = 6.7, height = 2, dpi = 600)
 
 #combine panels into a multi-panel figure:
 #https://theplosblog.plos.org/2019/12/multi-panel-figures-using-gimp-to-combine-individual-images-for-use-in-plos-articles/
@@ -503,18 +445,19 @@ ggsave(plot = p, filename = "/home/mahle68/ownCloud - enourani@ab.mpg.de@ownclou
 
 #### data prep -----------------------------------------------------------------------------
 
-#read in thinned liberality data
-circling_data <- readRDS("thinned_laterality_for_modeling5.rds")
+#Calculate the daily summaries for pitch, yaw, and wind. Then append GPS- and ACC- derived variables (from 03b_data_prep_days.r)
 
-##open migration data from L04c_migr_metrics.r
-migr_hrly <- readRDS("hourly_migr_metrics_gps_vedba.rds")
+##open migration data from 03b_data_prep_days.r
+migr_hrly <- readRDS("your_path/hourly_migration_metrics_gps_vedba.rds") #this file is not provided. but can be reporduced by following the previous scripts
+
+#migr_hrly <- readRDS("hourly_migr_metrics_gps_vedba.rds")
 
 #extract days of migration
 migr_days <- migr_hrly %>% 
   distinct(ind_day)
 
-#calculate hourly and daily summaries for wind and wobble using the laterality data, then append migration dataframe
-migr_hrly_ww <- circling_data %>% 
+#calculate hourly and daily summaries for wind using the imu, then append migration dataframe
+migr_hrly_w <- circling_data %>% 
   mutate(ind_day =  paste0(individual_local_identifier, "_", as.character(unique_date))) %>% 
   filter(ind_day %in% migr_days$ind_day) %>%  #subset for days in the migration data 
   mutate(dt_1hr = round_date(start_timestamp, "1 hour")) %>%  #assign unique hour
@@ -533,53 +476,28 @@ migr_hrly_ww <- circling_data %>%
          daily_max_mean_pitch = max(mean_pitch_mean, na.rm = T),
          daily_mean_mean_pitch = mean(mean_pitch_mean, na.rm = T),
          #I have already calculated daily LI, but in the previous round, I used mode of laterality in the models. so calculate the mode for making comparisons.
-         mode_laterality = getmode(laterality_dir)) %>% 
+         #mode_laterality = getmode(laterality_dir)
+  ) %>% 
   ungroup() %>% 
-  select(4, 42, 59, 64, 69:74, 85:98) %>% 
+  #select(4, 42, 59, 64, 69:74, 85:98) %>% 
+  select("individual_local_identifier", "days_since_tagging", "unique_date", "life_stage", "laterality_bank_day", "laterality_dir_day", "laterality_bank_stage", "laterality_dir_stage", 
+         "laterality_bank_ind","laterality_dir_ind", "location_lat_closest_gps_raw_z", "ind_day", "dt_1hr", "hrly_mean_wind_speed", "hrly_mean_cum_yaw", "hrly_max_cum_yaw", "hrly_max_mean_pitch", "hrly_mean_mean_pitch" ,
+         "daily_max_wind", "daily_mean_wind", "daily_max_cum_yaw", "daily_mean_cum_yaw", "daily_max_mean_pitch","daily_mean_mean_pitch") %>% 
   group_by(individual_local_identifier, unique_date, dt_1hr) %>% 
-  slice(1) %>% #just keep one row per hour 
+  slice(1) %>% #just keep one row per hour. 
   #bind to the daily migration data. get rid of days in the migr_hrly data that don't have laterality data
   left_join(migr_hrly) %>% 
   as.data.frame()
 
-saveRDS(migr_hrly_ww, file = "data_migration_performance_models_2min_hrly2.rds") #this only has days that have laterality info
+#saveRDS(migr_hrly_ww, file = "data_migration_performance_models_2min_hrly2.rds") #this only has days that have laterality info
 
-migr_daily_ww <- migr_hrly_ww %>% #ww: wind + wobble
+migr_daily_w <- migr_hrly_w %>% #ww: wind
   select(-contains("hrly")) %>%  #remove hourly data
-  group_by(individual_local_identifier, unique_date) %>%  #keep one row per day
+  group_by(individual_local_identifier, unique_date) %>%  #keep one row per day. the daily data is repeated for every row of that day in the hourly dataset
   slice(1) %>% 
   as.data.frame()
 
-saveRDS(migr_daily_ww, file = "data_migration_performance_models_2min_daily2.rds") #this only has days that have laterality info
-
-#### exploratory plots-----------------------------------------------------------------------------
-
-migr_daily_ww <- readRDS("data_migration_performance_models_2min_daily2.rds")
-
-migr_long <- migr_daily_ww %>%
-  pivot_longer(cols = c(daily_max_wind, daily_mean_wind, daily_max_cum_yaw, 
-                        daily_mean_cum_yaw, daily_max_mean_pitch, 
-                        daily_mean_mean_pitch, daily_distance, daily_avg_speed, daily_avg_altitude, daily_max_altitude,
-                        daily_mean_vedba, daily_mean_vedba, daily_max_vedba, daily_min_vedba, daily_IQR_vedba),
-               names_to = "measure", values_to = "value")
-
-ggplot(migr_long, aes(x = mode_laterality, y = value)) +
-  geom_violin(trim = FALSE, fill = "lightblue", alpha = 0.5) +
-  geom_boxplot(width = 0.1, outlier.shape = NA) +
-  geom_point(position = position_jitter(width = 0.2), alpha = 0.8, size = 0.2) +
-  labs(x = "Laterality", y = "Value") +
-  theme_classic() +
-  facet_wrap(~ measure, scales = "free_y")
-
-
-ggplot(migr_long, aes(x = laterality_dir_ind, y = value)) +
-  geom_violin(trim = FALSE, fill = "lightblue", alpha = 0.5) +
-  geom_boxplot(width = 0.1, outlier.shape = NA) +
-  geom_point(position = position_jitter(width = 0.2), alpha = 0.8, size = 0.2) +
-  labs(x = "Laterality", y = "Value") +
-  theme_classic() +
-  facet_wrap(~ measure, scales = "free_y")
-
+#saveRDS(migr_daily_ww, file = "data_migration_performance_models_2min_daily2.rds") #this only has days that have laterality info
 
 ### Model migration performance as a function of laterality -----------------------------------------------------
 
