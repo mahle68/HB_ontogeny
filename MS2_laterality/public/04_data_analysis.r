@@ -495,22 +495,17 @@ migr_daily_w <- migr_hrly_w %>% #ww: wind
   select(-contains("hrly")) %>%  #remove hourly data
   group_by(individual_local_identifier, unique_date) %>%  #keep one row per day. the daily data is repeated for every row of that day in the hourly dataset
   slice(1) %>% 
+  ungroup() %>% 
+  mutate(laterality_dir_day = as.character(laterality_dir_day), #convert to character, so that"ambidextrous" is the reference level
+         laterality_bi_day = ifelse(laterality_dir_day == "ambidextrous", 0, 1)) %>% 
   as.data.frame()
 
 #saveRDS(migr_daily_ww, file = "data_migration_performance_models_2min_daily2.rds") #this only has days that have laterality info
 
 ### Model migration performance as a function of laterality -----------------------------------------------------
 
-migr_daily <- readRDS("data_migration_performance_models_2min_daily2.rds") %>% 
-  mutate(laterality_dir_day = as.character(laterality_dir_day), #convert to character, so that"ambidextrous" is the reference level
-         laterality_bi_day = ifelse(laterality_dir_day == "ambidextrous", 0, 1),
-         laterality_bi_day_mode =  ifelse(mode_laterality == "ambidextrous", 0, 1)) 
-
-#replace very large values of max vertical speed with NAs
-migr_daily[which(migr_daily$daily_max_vert_speed > 10), "daily_max_vert_speed"] <- NA
-
 #z-transform the variables
-data_m <- migr_daily %>%
+data_m <- migr_daily_w %>%
   mutate(daily_abs_LI = abs(laterality_bank_day),
          laterality_bi_ind = ifelse(laterality_dir_ind == "ambidextrous", "ambidextrous", "handed"),
          laterality_bi_stage = ifelse(laterality_dir_stage == "ambidextrous", "ambidextrous", "handed")) %>% #because this is migration data only, there should be one assignment per individual
@@ -527,9 +522,7 @@ data_m %>%
   filter(abs(r) > 0.5) #correlated: mean and max wind, max cum yaw and mean cum yaw, daily distance an average speed, mean vedba and IQR vedba; max and avg altitude;
 # sd of vertical speed with avg altitude (0.57) and max altitude (0.64)
 
-#model: separately for daily_mean_vedba, daily_max_altitude, daily_distance, daily_mean_cum_yaw, daily_mean_mean_pitch, daily_max_altitude
-#vertical speed doesnt show a pattern. Omit because it is also unnecessary to have to explain the methodology.
-
+#model separately for daily_mean_vedba, daily_max_altitude, daily_distance, daily_mean_cum_yaw, daily_mean_mean_pitch, daily_max_altitude
 response_vars <- c( "daily_distance", "daily_max_altitude",
                     "daily_mean_vedba", "daily_mean_cum_yaw", 
                     "daily_mean_mean_pitch")
@@ -544,40 +537,36 @@ response_names <- c(
 
 plots_ls <- lapply(1:length(response_vars), function(response){
   
-  #model
-  #formula <- paste0(response_vars[response], " ~ 1 + daily_max_wind_z + daily_abs_LI_z + days_since_tagging_z + f(individual_local_identifier, model = 'iid')") %>% formula()
+  #model formula
   formula <- paste0(response_vars[response], " ~ 1 + daily_max_wind_z + daily_abs_LI_z + f(individual_local_identifier, model = 'iid')") %>% formula()
   
-  #run the model. now that LI is included as a continous variable, add ind ID as a random effect
+  #run the model
   m_inla <- inla(formula,
                  data = data_m,
                  control.compute = list(cpo = TRUE),
                  control.predictor = list(link = 1, compute = TRUE)) #compute=t means that NA values will be predicted
   
   # coefficients plot 
-  
   # posterior means of coefficients
   graph <- as.data.frame(summary(m_inla)$fixed)
   colnames(graph)[which(colnames(graph)%in%c("0.025quant","0.975quant"))]<-c("Lower","Upper")
   colnames(graph)[which(colnames(graph)%in%c("0.05quant","0.95quant"))]<-c("Lower","Upper")
   colnames(graph)[which(colnames(graph)%in%c("mean"))]<-c("Estimate")
   
-  #graph$Model<-i
   graph$Factor <- rownames(graph)
   
-  #remove weeks since dispersal
   VarOrder <- rev(unique(graph$Factor))
   VarNames <- VarOrder
   
   graph$Factor <- factor(graph$Factor, levels = VarOrder)
   levels(graph$Factor) <- VarNames
   
-  #export the output as a latex table -----------
+  #export the output as a latex table ----------- uncomment this section to write the tables to file
   # Convert to LaTeX table
   # latex_table <- xtable(graph)
   # 
   # # Specify the file path for each response variable
-  #  file_path <- paste0("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/paper_prep/MS2_laterality/tables/latex_table_", response_vars[response], "2.txt")
+  #  file_path <- paste0("your_path/latex_table_", response_vars[response], "2.txt")
   # 
   # # Open a connection to the file
   # sink(file_path)
@@ -593,7 +582,6 @@ plots_ls <- lapply(1:length(response_vars), function(response){
   #remove intercept for better visualization. 
   graph <- graph[-1,]
   
-  #X11(width = 4.5, height = 1.6)
   ggplot(graph, aes(x = Estimate, y = Factor)) +
     geom_vline(xintercept = 0, linetype="dashed", 
                color = "gray75", linewidth = 0.5) +
@@ -615,30 +603,5 @@ plots_ls <- lapply(1:length(response_vars), function(response){
 X11(width = 6.7, height = 2.5)
 combined <- reduce(plots_ls[1:5], `+`)
 (p <- combined + plot_layout(ncol = 3))
-
-ggsave(plot = p, filename = "/home/mahle68/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/paper_prep/MS2_laterality/figures/renamed_yaw/migration_models_multi_panel_continuous_indID.pdf", 
-       device = "pdf", width = 6.7, height = 2.5, dpi = 600)
-
-
-
-### plot the residuals against days: are individuals more likely to be lateral on difficult days
-# Extract the fitted values and residuals
-fitted_values <- m_inla$summary.fitted.values$mean
-observed_values <- data_m[[response_vars[response]]]
-residuals <- observed_values - fitted_values
-
-# Extract the "day since tagging" column
-days_since_tagging <- data_m[["unique_date"]]
-
-# Plot the residuals against "day since tagging"
-plot(days_since_tagging, residuals, 
-     xlab = "unique_date", 
-     ylab = "Residuals", 
-     main = "Residuals vs unique_date")
-abline(h = 0, col = "red", lty = 2)
-
-
-
-
 
 

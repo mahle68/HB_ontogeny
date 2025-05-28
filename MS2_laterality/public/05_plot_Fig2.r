@@ -6,26 +6,47 @@ library(tidyverse)
 library(lubridate)
 library(sf)
 library(ggridges)
-library(mapview)
+library(rnaturalearth)
 library(ggh4x) # devtools::install_github("teunbrand/ggh4x") #allows modifying colors of facets in ggplot
 
 setwd("/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/R_files/")
 
-getmode <- function(v) {
-  uniqv <- unique(v)
-  uniqv[which.max(tabulate(match(v, uniqv)))]
-}
+#---------------------------------------------------------------------------------
+## Step 1: The MAP (Fig 2a   )                                               #####
+#---------------------------------------------------------------------------------
 
+#### ----------------------- open GPS data and clean up & annotate with life-stage
+life_cycle <- readRDS("updated_life_cycle_nov24.rds") #this file is provided in the Edmond repository
 
-#######figure 2!!
+gps <- readRDS("your_path/your_downloaded_gps_data.rds") #file not provided. GPS data was downloaded in 02_wind_annotation.r
 
-##THE MAP -----------------------------------------------------------
-cleaned_gps <- readRDS("cleaned_gps_for_laterality_map.rds")
+cleaned_gps <- gps %>% 
+  #remove the points at (0,0) 
+  filter(!(location_lat == 0 & location_long == 0)) %>% 
+  mutate(unique_date = as.Date(timestamp)) %>% 
+  full_join(life_cycle %>% select(individual_local_identifier, deployment_dt_utc, first_exploration, migration_start, migration_end), by = "individual_local_identifier") %>% 
+  #remove data before deployment
+  filter(timestamp >= deployment_dt_utc) %>% 
+  #hourly subset to make the next step go faster!
+  group_by(individual_local_identifier, yday(timestamp), hour(timestamp)) %>% #subset to hourly
+  slice(1) %>% 
+  ungroup() %>% 
+  group_by(individual_local_identifier) %>% 
+  rowwise() %>% 
+  mutate(life_stage = case_when(
+    between(unique_date, migration_start, migration_end) ~ "migration",
+    between(unique_date, first_exploration, migration_start) ~ "post-fledging",
+    unique_date < first_exploration ~ "pre-fledging",
+    unique_date > migration_end ~ "wintering",
+    TRUE ~ NA_character_
+  )) %>% 
+  ungroup() %>% 
+  arrange(individual_local_identifier, timestamp) %>% 
+  as.data.frame()
 
-wgs <- st_crs("+proj=longlat +datum=WGS84 +no_defs")
-
-#open the continent boundaries layer
-world <- st_read("/home/mahle68/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/GIS_files/continent_shapefile/World_Continents.shp") %>% 
+#### ----------------------- plot
+# Load the world map using rnaturalearth
+world <- ne_countries(scale = "medium", returnclass = "sf") %>% 
   st_crop(xmin = -17.5, xmax = 43, ymin = -35.6, ymax = 70) %>%
   st_union()
 
@@ -40,7 +61,7 @@ pol <- st_polygon(
       Polycoords$lat[c(1,1,2,2,1)])
   )
 ) %>% 
-  st_sfc(crs = wgs)
+  st_sfc(crs = "EPSG:4326")
 
 lat_zones_for_map <-  seq(-30,65, by = 15)
 
@@ -82,16 +103,15 @@ X11(height = 4.09, width = 2.3)
           plot.margin = margin(0, 0, 0, 0, "pt")) 
 )
 
-ggsave(plot = flyway_map, filename = "/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/paper_prep/MS2_laterality/figures/map_multi_panel.pdf", 
-       device = "pdf", width = 2.3, height = 4.09, dpi = 600)
+#---------------------------------------------------------------------------------
+## Step 2: Distribution of laterality index (Fig 2b)                         #####
+#---------------------------------------------------------------------------------
 
-##DISTRIBUTION OF LATERALITY INDEX -----------------------------------------------------------
-
-#read in filtered data. this is not filtered for days since tagging
-filtered_w_LI <- readRDS("thinned_laterality_w_gps_wind_all_filters2.rds") %>% 
+#read in filtered data. this is not filtered for days since tagging. Data was prepared in 03a_data_prep_bursts.r
+filtered_w_LI <- readRDS("thinned_laterality_w_gps_wind_all_filters2_public_prep.rds") %>% #this file is provided in the Edmond repository
   mutate(life_stage = factor(life_stage, levels = c("post-fledging", "migration", "wintering"))) #reorder life stage
 
-#reorder based on the value of handedness during post-fledging
+#reorder based on the value of lateralization during post-fledging
 # Determine the order of individual_local_identifier based on laterality_dir
 ordered_identifiers <- filtered_w_LI %>%
   filter(life_stage == "post-fledging") %>% 
@@ -103,7 +123,7 @@ ordered_identifiers <- filtered_w_LI %>%
   ungroup() %>% 
   pull(individual_local_identifier)
 
-#manually edit the orders so that the inds that dont change level are first
+#manually edit the orders so that the individuals that don't change level are first
 manual_orders <- c("D329_015", "D326_193", "D163_696", "D225_232", "D329_012",  
                    "D225_236", "D329_014", "D225_231","D299_269", "D320_474", "D321_345", "D225_226", "D225_234", "D321_584", 
                    "D323_154","D311_750", "D321_348", "D321_349", "D323_155", "D324_510","D225_227", "D225_228", 
@@ -115,9 +135,6 @@ manual_orders <- c("D329_015", "D326_193", "D163_696", "D225_232", "D329_012",
 # Reorder the factor levels of individual_local_identifier
 filtered_w_LI$individual_local_identifier <- factor(filtered_w_LI$individual_local_identifier, 
                                                     levels = manual_orders)
-
-#gray out the id label for individuals that don't have complete trajectories
-text_col <- ifelse(filtered_w_LI$individual_local_identifier %in% c("D299_270", "D299_269", "D320_474", "D329_015", "D326_193", "D225_236") , "gray30", "black")
 
 #### ----------------------- plots for life stage and age
 #### ridgelines for daily laterality for different life stages
@@ -177,6 +194,3 @@ X11(height = 4.09, width = 4.3)
           legend.key.height=unit(.15,"cm"),
           legend.position = "right")
 )
-
-ggsave(plot = p, filename = "/home/mahle68/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/paper_prep/MS2_laterality/figures/LI_distr_multi_panel_ukspelling.pdf", 
-       device = "pdf", width = 4.3, height = 4.09, dpi = 600)
