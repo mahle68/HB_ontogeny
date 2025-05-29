@@ -448,7 +448,7 @@ combined <- pred_py + pred_wy + pred_wp & theme(legend.position = "right")
 #Calculate the daily summaries for pitch, yaw, and wind. Then append GPS- and ACC- derived variables (from 03b_data_prep_days.r)
 
 ##open migration data from 03b_data_prep_days.r
-migr_hrly <- readRDS("your_path/hourly_migration_metrics_gps_vedba.rds") #this file is not provided. but can be reporduced by following the previous scripts
+migr_hrly <- readRDS("your_path/hourly_migration_metrics_gps_vedba.rds") #this file is not provided. but can be reproduced by following the previous scripts
 
 #migr_hrly <- readRDS("hourly_migr_metrics_gps_vedba.rds")
 
