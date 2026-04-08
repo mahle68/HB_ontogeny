@@ -6,6 +6,9 @@
 library(tidyverse)
 library(corrr)
 library(INLA)
+library(gridExtra)
+library(patchwork)
+library(terra)
 
 
 #input data from the public folder
@@ -18,6 +21,7 @@ filtered_w_LI <- readRDS("/Users/enourani/Library/CloudStorage/OneDrive-Universi
 quantile(filtered_w_LI$days_since_tagging, probs = 0.9) #284 ... 
 
 circling_data <- filtered_w_LI %>% 
+  mutate(days_since_tagging = as.numeric(days_since_tagging)) %>% 
   #filter for days since tagging. only keep the 
   filter(days_since_tagging < 284) %>% 
   #make sure to do all the filtering before scaling the variables!!!!
@@ -53,6 +57,105 @@ new_data <- expand.grid(wind_speed = seq(from = min(circling_data$wind_speed,na.
 
 #### ----------------------- model: binomial logistic regression with inla
 
+#bin the age variable and append the new data
+data <- circling_data %>% 
+  #only keep columns that exist in the new_data
+  dplyr::select(intersect(colnames(new_data), colnames(.))) %>% 
+  full_join(new_data) %>% 
+  mutate(individual_local_identifier2 = individual_local_identifier, #repeat individual ID column to be used in the model formula for random effects
+         individual_local_identifier3 = individual_local_identifier,
+         age_group = inla.group(days_since_tagging_z, n = 100, method = "quantile"),
+         laterality_bi = as.factor(laterality_bi),
+         individual_local_identifier = as.factor(individual_local_identifier))
+
+#### run the models one at a time! for pitch and yaw separately
+m_inla_p <- inla(mean_pitch_sd_z ~ 1 + laterality_bi * age_group * wind_speed_z +
+                   f(individual_local_identifier, age_group, model = "iid"),
+                 data = data,
+                 control.compute = list(cpo = TRUE),
+                 control.predictor = list(link = 1, compute = TRUE)) #compute=t means that NA values will be predicted
+
+#log-transform instead of z-transform, to make sure response values are positive
+m_inla_p <- inla(log(mean_pitch_sd) ~ 1 + laterality_bi * age_group * wind_speed_z +
+                   f(individual_local_identifier, age_group, model = "iid"),
+                 data = data,
+                 control.compute = list(cpo = TRUE),
+                 control.predictor = list(link = 1, compute = TRUE)) #compute=t means that NA values will be predicted
+
+m_inla_y <- inla(mean_yaw_sd_z ~ 1 + laterality_bi * age_group * wind_speed_z +
+                   f(individual_local_identifier, age_group, model = "iid"),
+                 data = data,
+                 control.compute = list(cpo = TRUE),
+                 control.predictor = list(link = 1, compute = TRUE)) #compute=t means that NA values will be predicted
+
+
+### ----------------------- coefficient plts
+# posterior means of coefficients
+graph <- as.data.frame(summary(m_inla_p)$fixed)
+colnames(graph)[which(colnames(graph)%in%c("0.025quant","0.975quant"))]<-c("Lower","Upper")
+colnames(graph)[which(colnames(graph)%in%c("0.05quant","0.95quant"))]<-c("Lower","Upper")
+colnames(graph)[which(colnames(graph)%in%c("mean"))]<-c("Estimate")
+
+#graph$Model<-i
+graph$Factor <- rownames(graph)
+
+
+#### pitch_model: interaction plot -----------------------------------------------------------------------------
+
+#extract information for rows that had NAs as response variables
+na_rows <- which(is.na(data$mean_pitch_sd_z))
+
+preds_p <- data.frame(days_since_tagging = data[na_rows,"days_since_tagging"],
+                      wind = data[na_rows,"wind_speed"],
+                      preds = m_inla_p$summary.fitted.values[na_rows,"mean"]) %>% 
+  #back-transform the z-scores back to sd_pitch values
+  #mutate(preds = preds * attr(circling_data[,colnames(circling_data) == "mean_pitch_sd_z"],'scaled:center') +
+  #         attr(circling_data[,colnames(circling_data) == "mean_pitch_sd_z"],'scaled:scale')) %>% 
+  #do some interpolation to smooth the plot
+  terra::rast(type = "xyz") %>%
+  focal(w = 3, fun = "mean", na.policy = "all", na.rm = T) %>% 
+  as.data.frame(xy = T) %>%
+  rename(preds = focal_mean)
+
+#plot
+#X11(width = 7, height = 2)
+pred_py <- preds_p %>% 
+  ggplot() +
+  geom_tile(aes(x = x, y = y, fill = preds)) +
+  scale_fill_gradientn(colors = c("#440154FF", "#39568CFF" ,"#20A387FF", "#83e22b", "#FDE725FF"),
+                       values = c(0, 0.5, 0.6, 0.7, 1),
+                       limits = c(0, 1),
+                       na.value = "white",
+                       name = "Probability of Laterality") +
+  guides(fill = guide_colourbar(title.vjust = .95)) + # the legend title needs to move up a bit
+  labs(x = "Absolute cumulative yaw", y = "Average pitch") +
+  ggtitle("a") +
+  theme_classic() +
+  theme(text = element_text(size = 11),
+        legend.text = element_text(size = 8),
+        legend.title = element_text(size = 9),
+        panel.grid.minor = element_line(color = "white"),
+        axis.title.x = element_text(margin = margin(t = 5))) + # increase distance between x-axis values and title
+  scale_x_continuous(expand = c(0, 0)) + #remove space between the raster and the axis
+  scale_y_continuous(expand = c(0, 0))
+
+
+#combine the two plots for the coefficients and the interaction term
+X11(width = 7, height = 2.3)
+model_output_p <- grid.arrange(coefs, pred_py, nrow = 1, widths = c(0.4, 0.6))
+
+#ggsave(plot = model_output_p, filename = "/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/paper_prep/MS2_laterality/figures/sd_yaw_model_output.pdf", 
+#       device = "pdf", width = 7, height = 2.3, dpi = 600)
+
+ggsave(plot = model_output_p, filename = "/home/enourani/ownCloud - enourani@ab.mpg.de@owncloud.gwdg.de/Work/Projects/HB_ontogeny_eobs/paper_prep/MS2_laterality/figures/sd_pitch_model_output.pdf", 
+       device = "pdf", width = 7, height = 2.3, dpi = 600)
+
+
+
+
+
+#-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+####### apr 8 stuff
 data <- circling_data %>% 
   mutate(individual_local_identifier2 = individual_local_identifier, #repeat individual ID column to be used in the model formula for random effects
          individual_local_identifier3 = individual_local_identifier,
@@ -103,3 +206,48 @@ quartz(width = 6.2, height = 4)
           axis.title.x = element_text(margin = margin(t = 2))) #increase distance between x-axis values and title
 )
 
+
+#interaction plot
+na_rows <- which(is.na(data$mean_yaw_sd_z))
+
+preds <- data.frame(laterality_bi = data[na_rows,"laterality_bi"],
+                    age_group = data[na_rows,"age_group"],
+                    wind_speed = data[na_rows, "wind_speed"],
+                    preds = m_inla_y$summary.fitted.values[na_rows,"mean"],
+                    lower95 = m_inla_y$summary.fitted.values[na_rows,"0.025quant"],
+                    upper95 = m_inla_y$summary.fitted.values[na_rows,"0.975quant"]) %>% 
+  #back transform the age values
+  mutate(age = age_group * sd(circling_data$days_since_tagging) + mean(circling_data$days_since_tagging),
+         preds_yaw = preds * sd(circling_data$mean_yaw_sd) + mean(circling_data$mean_yaw_sd))
+#preds_pitch = preds * sd(laterality_circling_thin$mean_pitch_sd) + mean(laterality_circling_thin$mean_pitch_sd),
+#upper = upper95 * sd(laterality_circling_thin$mean_pitch_sd) + mean(laterality_circling_thin$mean_pitch_sd),
+#lower = lower95 * sd(laterality_circling_thin$mean_pitch_sd) + mean(laterality_circling_thin$mean_pitch_sd))
+
+#plot
+(pred_p <- preds %>% 
+    ggplot() +
+    geom_point(aes(x = age, y = preds_yaw, color = laterality_bi), size = 0.2) +
+    #geom_line(aes(x = age, y = preds_pitch, color = laterality_bi), linewidth = 0.5) +
+    #geom_ribbon(aes(x = age, y = preds_pitch, fill = laterality_bi, ymin = lower, ymax = upper), alpha = 0.75) +
+    geom_smooth(aes(x = age, y = preds_yaw, color = laterality_bi, fill = laterality_bi), method = "lm", se = T, alpha = 0.3, linewidth = 0.3) +
+    scale_color_manual(values = c("0" = "gray40", "1" = "#8a2be2ff"),
+                       name = "Laterality")+
+    scale_fill_manual(values = c("0" = "gray40", "1" = "#8a2be2ff"),
+                      guide = F)+
+    labs(x = "Days since tagging", y = "Horizontal wobble") +
+    #labs(x = "Age", y = "Vertical wobble") +
+    ggtitle("b") +
+    theme_classic() +
+    guides(colour = guide_legend(override.aes = list(fill = c("0" = "gray40", "1" = "#8a2be2ff"),
+                                                     alpha = 0.5))) +
+    #xlim(1, 300) +
+    theme(text = element_text(size = 11),
+          legend.text = element_text(size = 10),
+          legend.title = element_text(size = 9),
+          #axis.text = element_text(color = "gray45"),
+          #panel.grid.major = element_line(color = "gray75"),
+          panel.grid.minor = element_line(color = "white"),
+          axis.title.x = element_text(margin = margin(t = 5)))
+)
+
+model_output_p <- grid.arrange(coefs, pred_p, nrow = 1, widths = c(0.4, 0.6))
