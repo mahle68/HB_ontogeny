@@ -682,7 +682,9 @@ ggplot(circling_data, aes(x = days_since_tagging, y = laterality_bank)) +
   geom_smooth(method = "lm")
 
 
-#### ----------------------- model: binomial logistic regression with inla
+#### ----------------------- model: binomial logistic regression with inla... treat data as proportions of 0s and 1s instead of binary 0s and 1s
+
+setwd("/Users/enourani/Library/CloudStorage/OneDrive-UniversitédeLausanne/WORK/Projects/HB_ontogeny_eobs/R_files")
 
 circling_data <- readRDS("thinned_laterality_for_modeling4.rds")
 
