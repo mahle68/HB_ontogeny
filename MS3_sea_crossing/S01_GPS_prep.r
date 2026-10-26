@@ -15,6 +15,7 @@ library(lwgeom)
 library(rgl)
 library(viridis)
 library(moveWindSpeed)
+library(plotly)
 
 #options(rgl.printRglwidget = TRUE)
 
@@ -93,20 +94,56 @@ mapview(one, zcol = "height_msl", alpha = 0)
 # STEP 4: track segmentation --------------------------------------------#####
 #------------------------------------------------------------------------#####
 
-# adapted from MS2_laterality/public/000_bonus_gps_processing.r
+# net-360 signed-rotation + validity-gate + gap-based thermal grouping,
+# ported from 03_segment.R (laterality/thermalling project). Solar-day tagging and the
+# glide-segment extraction from that script are unrelated to thermal detection and are omitted.
+# One deliberate deviation: 03_segment.R projects local x/y from the bird's first-ever fix; we
+# only have the over-sea subset of the track, so the origin here is the first over-sea fix instead.
 
 min_res_tl <- 2
-min_burst_d <- 30
-sw_vs <- 2
-sw_th <- 12
-circl_deg <- 50
-min_behav_d <- 7
+sw_tr <- 2
+turn_lo <- 4
+glide_k <- 5L
+therm_gap <- 250
 min_therm_d <- 20
+ext_hard <- 3
+ext_slow <- 10
+av_slow <- 18
+net_lo <- 300
+gs_min <- 2
 
-ta_per_sec_circl <- circl_deg/((2*sw_th)+1)
+#accumulates signed turn angle per fix to detect completed circles (net 360 deg); also records why an
+#incomplete rotation ended (glide-reset vs ran out of fixes), to make "other" fixes diagnosable
+label_circles <- function(turn, str) {
+  n <- length(turn)
+  cyc <- rep(NA_integer_, n)
+  rotating <- rep(FALSE, n)
+  acc <- 0; straight <- 0L; k <- 0L; completed <- integer(0); reset_ks <- integer(0)
+  for (i in seq_len(n)) {
+    rot <- is.finite(str[i]) && str[i] >= turn_lo
+    if (!rot) {
+      straight <- straight + 1L
+      if (straight == glide_k) { reset_ks <- c(reset_ks, k); acc <- 0; k <- k + 1L }
+    } else {
+      straight <- 0L
+      rotating[i] <- TRUE
+      acc <- acc + (if (is.finite(turn[i])) turn[i] else 0)
+      cyc[i] <- k
+      if (abs(acc) >= 360) { completed <- c(completed, k); k <- k + 1L; acc <- acc - sign(acc) * 360 }
+    }
+  }
+  behav <- if_else(!is.na(cyc) & cyc %in% completed, "circling", if_else(rotating, "other", "glide"))
+  other_reason <- if_else(behav != "other", NA_character_,
+                          if_else(cyc %in% reset_ks, "incomplete_glide_reset", "incomplete_burst_end"))
+  tibble(behav = behav, cyc = cyc, other_reason = other_reason)
+}
+
+#linearly detrends a position vector against time (removes net drift), closed-form least squares
+detr <- function(v, tc, sst) if (sst <= 0) v - mean(v) else (v - mean(v)) - (sum(tc * (v - mean(v))) / sst) * tc
 
 df_hr <- over_sea %>%
-  filter(individual_local_identifier == "D225_236") %>% 
+  filter(individual_local_identifier == "D225_236") %>%
+  mutate(lon = st_coordinates(.)[,1], lat = st_coordinates(.)[,2]) %>%
   group_split(individual_local_identifier) %>%
   lapply(function(ind){
 
@@ -120,7 +157,10 @@ df_hr <- over_sea %>%
              azimuth_rad = c(NA, st_geod_azimuth(.)),
              step_length = if_else(row_number() == 1, 0, st_distance(geometry, lag(geometry), by_element = TRUE) %>% as.numeric()),
              azimuth = (azimuth_rad * 180)/pi,
-             azimuth_positive = if_else(azimuth >= 0, azimuth, azimuth + 360)) %>%
+             azimuth_positive = if_else(azimuth >= 0, azimuth, azimuth + 360),
+             lon0 = first(lon), lat0 = first(lat),
+             x_m = (lon - lon0) * (pi/180) * 6371000 * cos(lat0 * pi/180),
+             y_m = (lat - lat0) * (pi/180) * 6371000) %>%
       group_by(burst_id) %>%
       mutate(altitude_diff = if_else(row_number() == 1, NA, height_msl - lag(height_msl,1)),
              vert_speed = if_else(row_number() == 1, NA, altitude_diff/time_lag_sec),
@@ -129,138 +169,103 @@ df_hr <- over_sea %>%
              ground_speed = if_else(row_number() == 1, NA, step_length/time_lag_sec)) %>%
       ungroup()
 
-    bursts_to_keep <- ind %>%
-      st_drop_geometry() %>%
-      group_by(burst_id) %>%
-      summarize(freq = n()) %>%
-      filter(freq >= min_burst_d) %>%
-      pull(burst_id)
-
-    ind <- ind %>%
-      filter(burst_id %in% bursts_to_keep)
-
-    if(nrow(ind) == 0) return(NULL)
-
     ind %>%
       group_split(burst_id) %>%
       lapply(function(b){
+        if(nrow(b) < 3) {
+          b$behav <- "other"; b$cyc <- NA_real_; b$other_reason <- "burst_too_short"
+          return(b)
+        }
         b <- b %>%
-          mutate(vert_speed_smooth = ifelse(row_number() <= sw_vs | row_number() > n() - sw_vs, NA,
-                                            map_dbl((sw_vs + 1):(n() - sw_vs), ~ {
-                                              i <- .x
-                                              mean(b %>% slice((i - sw_vs):(i + sw_vs)) %>% pull(vert_speed), na.rm = T)
-                                            })),
-                 turn_angle_cum = ifelse(row_number() <= sw_th | row_number() > n() - sw_th, NA,
-                                         map_dbl((sw_th + 1):(n() - sw_th), ~ {
-                                           i <- .x
-                                           max(abs(cumsum(b %>% slice((i - sw_th):(i + sw_th)) %>% drop_na(turn_angle) %>% pull(turn_angle))))
-                                         })))
+          mutate(turn_rate = abs(turn_angle)/pmax(time_lag_sec, 1))
+        b <- b %>%
+          mutate(turn_rate_smooth = ifelse(row_number() <= sw_tr | row_number() > n() - sw_tr, NA,
+                                           map_dbl((sw_tr + 1):(n() - sw_tr), ~ {
+                                             i <- .x
+                                             mean(b %>% slice((i - sw_tr):(i + sw_tr)) %>% pull(turn_rate), na.rm = T)
+                                           })))
+        lab <- label_circles(b$turn_angle, b$turn_rate_smooth)
+        b$behav <- lab$behav
+        b$other_reason <- lab$other_reason
+        b$cyc <- if_else(is.na(lab$cyc), NA_real_, lab$cyc + unique(b$burst_id) * 100000)
         return(b)
       }) %>%
       bind_rows()
   }) %>%
-  bind_rows() %>%
-  drop_na(vert_speed_smooth)
+  bind_rows()
 
-df_hr <- df_hr %>%
-  mutate(kmean_cluster = kmeans(vert_speed_smooth, 2)$cluster)
-
-soar_id <- df_hr %>%
-  group_by(kmean_cluster) %>%
-  summarise(mean_vert_speed_smooth = mean(vert_speed_smooth)) %>%
+#per-circle summary (every attempted rotation, completed or not) + the geometric validity gate
+circles <- df_hr %>%
+  st_drop_geometry() %>%
+  filter(!is.na(cyc)) %>%
+  group_by(individual_local_identifier, cyc) %>%
+  group_modify(~{
+    d <- .x
+    ts_n <- as.numeric(d$timestamp)
+    tc <- ts_n - mean(ts_n)
+    sst <- sum(tc^2)
+    px <- detr(d$x_m, tc, sst)
+    py <- detr(d$y_m, tc, sst)
+    tibble(burst_id = d$burst_id[1],
+           behav = d$behav[1],
+           t_start = min(d$timestamp), t_end = max(d$timestamp),
+           dur = as.numeric(difftime(max(d$timestamp), min(d$timestamp), units = "secs")),
+           net = sum(d$turn_angle, na.rm = TRUE),
+           alt0 = first(d$height_msl), alt1 = last(d$height_msl),
+           gs_mean = mean(d$ground_speed, na.rm = TRUE),
+           ext = max(diff(range(px)), diff(range(py))))
+  }) %>%
   ungroup() %>%
-  filter(mean_vert_speed_smooth == max(mean_vert_speed_smooth)) %>%
-  pull(kmean_cluster)
+  mutate(ang_vel = abs(net)/dur,
+         valid = behav == "circling" & !(ext < ext_hard) & !(ext < ext_slow & ang_vel < av_slow) &
+           abs(net) >= net_lo & gs_mean >= gs_min)
 
-df_hr <- df_hr %>%
-  mutate(soar_clust = if_else(kmean_cluster == soar_id, "soar", "glide"),
-         flight_clust = if_else(is.na(turn_angle_cum), NA,
-                                if_else(soar_clust == "glide", "gliding",
-                                        if_else(turn_angle_cum >= circl_deg, "circular_soaring", "linear_soaring"))))
+#valid circles within therm_gap (and the same burst) of each other form one thermal; climb/bout_net_climb
+#follow 03_segment.R exactly (duration-weighted mean of per-circle climb, excluding inter-circle gap time)
+valid_circles <- circles %>%
+  filter(valid) %>%
+  arrange(individual_local_identifier, t_start) %>%
+  group_by(individual_local_identifier) %>%
+  mutate(gap_prev = as.numeric(difftime(t_start, lag(t_end), units = "secs")),
+         new_therm = is.na(gap_prev) | gap_prev > therm_gap | burst_id != lag(burst_id),
+         therm_idx = cumsum(new_therm),
+         track_flight_seg_id = sprintf("%s_t%04d", individual_local_identifier, therm_idx)) %>%
+  ungroup() %>%
+  group_by(track_flight_seg_id) %>%
+  mutate(nth_circle_in_thermal = row_number(),
+         climb = (alt1 - alt0)/dur,
+         bout_net_climb = sum(climb * dur)/sum(dur)) %>%
+  ungroup() %>%
+  mutate(circle_id = sprintf("%s_c%02d", track_flight_seg_id, nth_circle_in_thermal)) %>%
+  select(individual_local_identifier, cyc, track_flight_seg_id, circle_id, climb, bout_net_climb)
 
 over_sea_classified <- df_hr %>%
-  group_split(individual_local_identifier, burst_id) %>%
-  lapply(function(b){
+  left_join(circles %>% select(individual_local_identifier, cyc, circle_net = net, circle_dur = dur,
+                                circle_ang_vel = ang_vel, circle_ext = ext, circle_gs_mean = gs_mean,
+                                circle_valid = valid),
+            by = c("individual_local_identifier", "cyc")) %>%
+  left_join(valid_circles, by = c("individual_local_identifier", "cyc")) %>%
+  mutate(flight_clust = case_when(
+    behav == "circling" & circle_valid ~ "circular_soaring",
+    behav == "glide" ~ "gliding",
+    TRUE ~ "other"
+  ),
+  other_reason = case_when(
+    flight_clust != "other" ~ NA_character_,
+    behav == "circling" & !circle_valid ~ "completed_invalid_geometry",
+    TRUE ~ other_reason
+  ))
 
-      b <- b %>%
-        mutate(na_index = if_else(!is.na(flight_clust), NA,
-                                  if_else(row_number() %in% 1:(sw_th-2), "head", "tail"))) %>%
-        group_by(na_index) %>%
-        mutate(duration = sum(time_lag_sec),
-               turn_angle_sum = abs(sum(turn_angle, na.rm = T))) %>%
-        mutate(flight_clust = if_else(!is.na(flight_clust), flight_clust,
-                                      if_else(soar_clust == "glide", "gliding",
-                                              if_else(soar_clust == "soar" & (turn_angle_sum/duration) >= ta_per_sec_circl, "circular_soaring", "linear_soaring")))) %>%
-        ungroup() %>%
-        dplyr::select(-c(duration, turn_angle_sum, na_index))
 
-      b <- b %>%
-        arrange(timestamp) %>%
-        mutate(flight_clust_sm = if_else(row_number() %in% c(1, 2, nrow(.) - 1, nrow(.)), flight_clust,
-                                         if_else(lag(flight_clust, 1) == "circular_soaring" & lead(flight_clust, 2) == "circular_soaring", "circular_soaring",
-                                                 if_else(lag(flight_clust, 2) == "circular_soaring" & lead(flight_clust, 1) == "circular_soaring", "circular_soaring",
-                                                         flight_clust)))) %>%
-        mutate(flight_clust_diff = if_else(c(0, diff(as.numeric(as.factor(flight_clust_sm)))) == 0, 0, 1),
-               flight_seg_id = cumsum(coalesce(flight_clust_diff,0)))
-
-      behav_duration <- b %>%
-        group_by(flight_seg_id) %>%
-        reframe(timestamp_start = head(timestamp,1),
-                duration = sum(time_lag_sec),
-                flight_clust_sm = unique(flight_clust_sm)) %>%
-        ungroup() %>%
-        arrange(timestamp_start) %>%
-        mutate(flight_clust_sm1 = flight_clust_sm) %>%
-        mutate(flight_clust_sm1 = if_else(row_number() %in% c(1,nrow(.)), flight_clust_sm,
-                                          if_else(lag(flight_clust_sm1, 1) == lead(flight_clust_sm1,1) & duration <= min_behav_d, lag(flight_clust_sm1), flight_clust_sm1)))
-
-      b <- b %>%
-        left_join(behav_duration %>% select(flight_seg_id, flight_clust_sm, flight_clust_sm1), by = c("flight_seg_id","flight_clust_sm")) %>%
-        mutate(flight_clust_diff_sm1 = if_else(c(NA, diff(as.numeric(as.factor(flight_clust_sm1)))) == 0, 0, 1),
-               flight_seg_id_sm1 = if_else(row_number() == 1 | is.na(flight_clust_diff_sm1), NA,
-                                           cumsum(coalesce(flight_clust_diff_sm1, 0))))
-
-      behav_duration2 <- b %>%
-        group_by(flight_seg_id_sm1) %>%
-        reframe(timestamp_start = head(timestamp,1),
-                duration = sum(time_lag_sec),
-                flight_clust_sm1 = unique(flight_clust_sm1)) %>%
-        ungroup() %>%
-        arrange(timestamp_start) %>%
-        mutate(flight_clust_sm2 = if_else(row_number() %in% c(1,nrow(.)), flight_clust_sm1,
-                                          if_else(lag(flight_clust_sm1, 1) == lead(flight_clust_sm1,1) & duration <= min_behav_d, lag(flight_clust_sm1), flight_clust_sm1)))
-
-      b <- b %>%
-        left_join(behav_duration2 %>% select(flight_seg_id_sm1, flight_clust_sm1, flight_clust_sm2), by = c("flight_seg_id_sm1","flight_clust_sm1")) %>%
-        mutate(flight_clust_diff_sm2 = if_else(c(NA, diff(as.numeric(as.factor(flight_clust_sm2)))) == 0, 0, 1),
-               flight_seg_id_sm2 = if_else(row_number() == 1 | is.na(flight_clust_diff_sm2), NA,
-                                           cumsum(coalesce(flight_clust_diff_sm2, 0))))
-
-      behav_ta <- b %>%
-        group_by(flight_seg_id_sm2, flight_clust_sm2) %>%
-        reframe(duration = sum(time_lag_sec),
-                turn_angle_sum = abs(sum(turn_angle, na.rm = T))) %>%
-        mutate(flight_clust_sm3 = if_else(flight_clust_sm2 == "circular_soaring" & (turn_angle_sum/duration) < ta_per_sec_circl, "linear_soaring",
-                                          if_else(flight_clust_sm2 == "linear_soaring" & (turn_angle_sum/duration) >= ta_per_sec_circl, "circular_soaring",
-                                                  flight_clust_sm2)))
-
-      b <- b %>%
-        left_join(behav_ta %>% select(flight_seg_id_sm2, flight_clust_sm2, flight_clust_sm3), by = c("flight_seg_id_sm2","flight_clust_sm2")) %>%
-        mutate(flight_clust_diff_sm3 = if_else(c(NA, diff(as.numeric(as.factor(flight_clust_sm3)))) == 0, 0, 1),
-               flight_seg_id_sm3 = if_else(row_number() == 1 | is.na(flight_clust_diff_sm3), NA,
-                                           cumsum(coalesce(flight_clust_diff_sm3,0))))
-
-      b <- b %>%
-        mutate(track_flight_seg_id = paste(unique(b$individual_local_identifier), "burst", unique(b$burst_id), "seg", b$flight_seg_id_sm3, sep = "_"))
-
-      return(b)
-  }) %>%
-  bind_rows()
+#sanity check
+mapview(over_sea_classified, zcol ="flight_clust", alpha= 0)
+mapview(over_sea_classified, zcol ="circle_net", alpha= 0)
+mapview(over_sea_classified, zcol ="other_reason", alpha= 0)
 
 saveRDS(over_sea_classified, file = "over_sea_classified.rds")
 
 thermal_bouts <- over_sea_classified %>%
-  filter(flight_clust_sm3 == "circular_soaring") %>%
+  filter(flight_clust == "circular_soaring") %>%
   group_by(track_flight_seg_id) %>%
   mutate(bout_duration = sum(time_lag_sec)) %>%
   ungroup() %>%
@@ -296,6 +301,7 @@ Cdpro <- 0.014
 Cdb <- 0.10
 rho <- 1.225 * exp(-morph_alt/8500)
 
+#Pennycuick circling sink rate for honey buzzard morphology, given airspeed and bank angle
 sinkrate <- function(V, phi) {
   n <- 1/cos(pmin(phi, 60*deg2rad)); L <- n*morph_m*g; Sb <- 0.00813*morph_m^0.666
   Di <- k_ind*L^2/(0.5*rho*V^2*pi*morph_b^2); Dpar <- 0.5*rho*V^2*Sb*Cdb; Dpro <- 0.5*rho*V^2*morph_S*Cdpro
@@ -339,7 +345,7 @@ bout_summary <- thermal_bouts_xy %>%
   group_by(thermal_id, individual_local_identifier) %>%
   summarise(bout_duration = first(bout_duration),
             turn_angle_sum = sum(abs(turn_angle), na.rm = TRUE),
-            climb = (last(height_msl) - first(height_msl))/first(bout_duration),
+            climb = first(bout_net_climb),
             .groups = "drop") %>%
   mutate(omega = (turn_angle_sum * deg2rad) / bout_duration)
 
@@ -361,4 +367,49 @@ saveRDS(thermal_wind, file = "thermal_wind_estimates_over_sea.rds")
 
 #sanity check
 
+#3D trajectory colored by flight type, local planar coords (undistorted, unlike lon/lat)
+traj_3d <- over_sea_classified %>%
+  filter(individual_local_identifier == "D225_236" & timestamp >= as.Date("2022-10-03")) %>%
+  st_drop_geometry()
+
+plot_ly(traj_3d, x = ~x_m, y = ~y_m, z = ~height_msl, color = ~height_msl,
+        colors = c("firebrick", "steelblue", "grey70"),
+        type = "scatter3d", mode = "lines+markers",
+        marker = list(size = 2), line = list(width = 2)) %>%
+  layout(scene = list(aspectmode = "data",
+                       xaxis = list(title = "x (m)"),
+                       yaxis = list(title = "y (m)"),
+                       zaxis = list(title = "height MSL (m)")))
+
+#zoom in on one thermal bout to see the circling helix, colored by wind speed
+one_thermal <- thermal_wind %>%
+  filter(thermal_id == first(thermal_id)) %>%
+  st_drop_geometry()
+
+plot_ly(one_thermal, x = ~x_m, y = ~y_m, z = ~height_msl, color = ~wind_speed,
+        type = "scatter3d", mode = "lines+markers",
+        marker = list(size = 3), line = list(width = 2)) %>%
+  layout(scene = list(aspectmode = "data",
+                       xaxis = list(title = "x (m)"),
+                       yaxis = list(title = "y (m)"),
+                       zaxis = list(title = "height MSL (m)")))
+
+#static height-vs-latitude profile for the Oct 3rd 14:30-15:30 window
+chunk <- over_sea_classified %>%
+  st_drop_geometry() %>%
+  filter(month(timestamp) == 10, day(timestamp) == 3,
+         between(hour(timestamp)*60 + minute(timestamp), 14*60+30, 15*60+30)) %>%
+  arrange(timestamp) %>%
+  mutate(seg_change = flight_clust != lag(flight_clust) | row_number() == 1,
+         seg_id = cumsum(coalesce(seg_change, TRUE))) %>%
+  group_by(seg_id) %>%
+  mutate(seg_duration = as.numeric(difftime(max(timestamp), min(timestamp), units = "secs"))) %>%
+  ungroup()
+
+ggplot(chunk, aes(x = timestamp, y = height_msl, color = turn_angle, group = seg_id)) +
+  geom_path() +
+  geom_point(size = 1) +
+  scale_color_gradient2(name = "turn angle\n(deg)", low = "firebrick", mid = "grey85", high = "steelblue", midpoint = 0) +
+  labs(x = "timestamp", y = "height above MSL (m)") +
+  theme_linedraw()
 
