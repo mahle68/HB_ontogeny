@@ -63,7 +63,7 @@ coastlines <- st_read("/Users/enourani/Library/CloudStorage/OneDrive-UniversiteÌ
 #over_sea_w_buffer <- gps_sf  %>%
 #  st_difference(coastlines_buffer)
 
-#extract points that only fall over the sea
+#extract points that only fall over the sea... for wind support and crosswind that require flight direction, having the point prior to sea-crossing is useful, so calculate flight direction before spatial subsetting
 over_sea <- cleaned_gps  %>%
   mt_as_event_attribute(., names(mt_track_data(.))) %>% #after this point we lose the move2 class, so keep the attributes
   st_difference(coastlines) 
@@ -88,7 +88,28 @@ one <- over_sea %>%
   filter(individual_local_identifier == "D225_236")
 
 mapview(one, zcol = "height_msl", alpha = 0)
+mapview(one, zcol = "height_msl", alpha = 0)
 
+#------------------------------------------------------------------------#####
+# STEP 5: annotate using env data ---------------------------------------#####
+#------------------------------------------------------------------------#####
+
+#open annotated data from 2024 :p
+annotations <- readRDS("/Users/enourani/Library/CloudStorage/OneDrive-UniversiteÌdeLausanne/WORK/Projects/HB_ontogeny_eobs/R_files/sea_gps_seg_ann.rds") %>% 
+  st_drop_geometry()
+
+over_sea_ann <- over_sea %>% 
+  left_join(annotations %>% select(c(local_identifier, timestamp, u_950, v_950, geopotential, blh, sst, u_10m, v_10m, t2m, delta_t, wind_speed_950, wind_speed_10m)),
+            by = c("individual_local_identifier" = "local_identifier", "timestamp"))
+
+
+#sample with full circles over the sea: D329_014
+#shallow soaring example: D225_236 (from 2022)
+#look at one sample
+one <- over_sea_ann %>% 
+  filter(individual_local_identifier == "D225_236")
+
+mapview(one, zcol = "wind_speed_10m.y", alpha = 0)
 
 #------------------------------------------------------------------------#####
 # STEP 4: track segmentation --------------------------------------------#####
@@ -274,12 +295,35 @@ thermal_bouts <- over_sea_classified %>%
 
 saveRDS(thermal_bouts, file = "thermal_bouts_over_sea.rds")
 
+
+
+#look at one sample from 2023. this one has full circling bouts
+one <- over_sea_classified %>%
+  filter(individual_local_identifier == "D329_014")
+
+#look at one sample
+one <- over_sea_classified %>%
+  filter(individual_local_identifier == "D225_236")
+
+mapview(one, zcol = "wind_speed_10m", alpha = 0)
+mapview(one, zcol = "height_msl", alpha = 0)
+mapview(one, zcol = "heading", alpha = 0) #heading of the device
+
+#sanity check: vertical speed, with color resolution concentrated in the -4 to 4 m/s range
+vs_breaks <- c(-20, -10, -6, -4, -3, -2, -1, 0, 1, 2, 3, 4, 6, 10, 20)
+
+mapview(one, zcol = "vert_speed", alpha = 0,
+        at = vs_breaks,
+        col.regions = colorRampPalette(c("purple", "yellow", "darkorange"))(length(vs_breaks) - 1))
+
+
 #------------------------------------------------------------------------#####
-# STEP 5: calculate wind speed from data --------------------------------#####
+# STEP 6: calculate wind speed from data --------------------------------#####
 #------------------------------------------------------------------------#####
 
 # per thermal bout, following Weinzierl et al. 2016 (Ecology & Evolution, doi: 10.1002/ece3.2585)
 # moveWindSpeed::getWindEstimate() implements their maximum-likelihood wind estimator.
+
 # Pennycuick morphology constants for the honey buzzard are from the "buzzard" row of the
 # multi-species MORPH table in 04_wind.R (buzzard_finland -> "buzzard": m, b, S, alt).
 
@@ -403,13 +447,45 @@ chunk <- over_sea_classified %>%
   mutate(seg_change = flight_clust != lag(flight_clust) | row_number() == 1,
          seg_id = cumsum(coalesce(seg_change, TRUE))) %>%
   group_by(seg_id) %>%
-  mutate(seg_duration = as.numeric(difftime(max(timestamp), min(timestamp), units = "secs"))) %>%
+  mutate(seg_duration = as.numeric(difftime(max(timestamp), min(timestamp), units = "secs")),
+         cum_turn_deg = cumsum(replace_na(abs(turn_angle), 0))) %>%
   ungroup()
 
-ggplot(chunk, aes(x = timestamp, y = height_msl, color = turn_angle, group = seg_id)) +
-  geom_path() +
-  geom_point(size = 1) +
-  scale_color_gradient2(name = "turn angle\n(deg)", low = "firebrick", mid = "grey85", high = "steelblue", midpoint = 0) +
+#color: concentrate the gradient between -5 and 5 m/s; anything beyond saturates to a single flat color
+vs_color_lim <- 5
+
+ggplot(chunk, aes(x = timestamp, y = height_msl, group = seg_id)) +
+  geom_path(aes(color = vert_speed)) +
+  geom_point(aes(color = vert_speed), size = 1) +
+  scale_color_gradient2(name = "vertical\nspeed (m/s)", low = "tomato", mid = "white", high = "royalblue", midpoint = 0,
+                        limits = c(-vs_color_lim, vs_color_lim), oob = scales::squish,
+                        breaks = seq(-vs_color_lim, vs_color_lim, 1)) +
   labs(x = "timestamp", y = "height above MSL (m)") +
   theme_linedraw()
+
+#same chunk, top-down view: longitude vs latitude, same vert_speed coloring as the height-vs-time plot
+ggplot(chunk, aes(x = lon, y = lat, group = seg_id)) +
+  geom_path(aes(color = vert_speed)) +
+  geom_point(aes(color = vert_speed), size = 1) +
+  scale_color_gradient2(name = "vertical\nspeed (m/s)", low = "tomato", mid = "white", high = "royalblue", midpoint = 0,
+                        limits = c(-vs_color_lim, vs_color_lim), oob = scales::squish,
+                        breaks = seq(-vs_color_lim, vs_color_lim, 1)) +
+  labs(x = "longitude", y = "latitude") +
+  theme_linedraw()
+
+#same top-down view, zoomed in to 14:50-15:05
+chunk_zoom <- chunk %>%
+  filter(between(hour(timestamp)*60 + minute(timestamp), 14*60+59, 15*60+1))
+
+ggplot(chunk_zoom, aes(x = lon, y = lat, group = seg_id)) +
+  geom_path(aes(color = vert_speed)) +
+  geom_point(aes(color = vert_speed), size = 1) +
+  scale_color_gradient2(name = "vertical\nspeed (m/s)", low = "tomato", mid = "white", high = "royalblue", midpoint = 0,
+                        limits = c(-vs_color_lim, vs_color_lim), oob = scales::squish,
+                        breaks = seq(-vs_color_lim, vs_color_lim, 1)) +
+  labs(x = "longitude", y = "latitude") +
+  theme_linedraw()
+
+
+
 
