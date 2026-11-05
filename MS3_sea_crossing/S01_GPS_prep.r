@@ -9,7 +9,6 @@ library(tidyverse)
 library(lubridate)
 library(sf)
 library(move2)
-library(move2utils)
 library(units)
 library(mapview)
 library(terra)
@@ -17,19 +16,12 @@ library(lwgeom)
 library(rgl)
 library(viridis)
 library(moveWindSpeed)
-#library(plotly)
-library(ecmwfr)  # Make sure this is version 2.0.0+
-library(data.table)
-library(plyr)
-library(doMC)
-
-
+library(plotly)
 
 #options(rgl.printRglwidget = TRUE)
 
 wgs <- st_crs("+proj=longlat +datum=WGS84 +no_defs")
-setwd("/Users/enourani/Library/CloudStorage/OneDrive-UniversitédeLausanne/WORK/Projects/HB_ontogeny_eobs/R_files/")
-source("/Users/enourani/Documents/Project_repos/HB_ontogeny_repo/ERA5_function_libs.r") #Kami's functions for ERA5 annotation
+setwd("/Users/enourani/Library/CloudStorage/OneDrive-UniversitédeLausanne/WORK/Projects/HB_ontogeny_eobs/R_files/")
 
 #------------------------------------------------------------------------#####
 #STEP 1: download all GPS data, filter for latitude, and clean up -------#####
@@ -49,103 +41,18 @@ saveRDS(gps, file = "raw_gps_Oct26.rds")
 gps <- gps %>%
   filter(between(st_coordinates(.)[,2], 53.5, 61.05) | between(st_coordinates(.)[,2], 28.9, 46.49))
 
-cleaned_gps <- gps |> 
-  mt_filter_unique(criterion = "first") |> 
+cleaned_gps <- gps |>
+  mt_filter_unique(criterion = "first") |>
     mt_clean_track(mass = 1, mode = "flying", remove = TRUE) #max mass in kg
 
 saveRDS(cleaned_gps, file = "cleaned_gps_sea_Oct26.rds")
 
-#first annotate this roughly sub-sampled for sea-crossing dataset, then subset for only points over the sea and calculate flight height etc in step 4
-
 #------------------------------------------------------------------------#####
-# STEP 3: annotate using env data ---------------------------------------#####
+# STEP 3: subset for points over the sea, calculate flight altitude and direction ---#####
 #------------------------------------------------------------------------#####
-
-#tried Kami's code: https://github.com/kamransafi/ERA5_move2/blob/main/Request_ERA5.R
-#but it fails because CDS doesnt allow any concurrent requests being submitted
-
-#Local folder where all the ERA5 data and the track as Track.rds will be stored
-Local_path <- paste(getwd(), "/sea_annotations/2026", sep="")
-
-#if the directory hasn't been created yet, create it
-if (!dir.exists(Local_path)) dir.create(Local_path)
-
-### This part can/should be adjusted to your needs in regard to the movement data that you want to annotate ###
-# What is important that at the end there is a Track.rds file stored in the Local_path
-# This Track object can be either a move2 object according to the movebank standard, or
-# a data.frame with columns "event_id", "Long", "Lat", "timestamp", and "height_above_ellipsoid".
-
-Track <- cleaned_gps
-# Remove empty geometries
-Traj <- Track[!st_is_empty(Track$geometry),]
-
-# Create request table
-reqTable <- ERA5request(Traj, timeUnit = "month", area="byTimeUnit", area_ext = 0.01)
-
-
-print(paste("Number of requests:", nrow(reqTable)))
-
-# Create request list - structure remains the same
-requests_surface <- create_request_list(reqTable, 
-                                        dataset = "ERA5 hourly data on single level",
-                                        vars = c("10m_u_component_of_wind", "10m_v_component_of_wind", "2m_temperature", "sea_surface_temperature"))
-
-
-lapply(requests_surface, function(one_request){
-    
-    file <- wf_request(
-      request  = one_request,  # the request
-      transfer = TRUE,     # download the file
-      path     = Local_path
-    )
-    
-  })
-
-
-
-
-
-### kami's code
-
-if(!file.exists(paste(Local_path, "requestTable.csv", sep="/"))) {
-  fwrite(reqTable, paste(Local_path, "requestTable.csv", sep="/"))
-}
-
-
-requests_pressure <- create_request_list(reqTable, 
-                                dataset="ERA5 hourly data on pressure levels", 
-                                vars=c("geopotential", "u_component_of_wind", "v_component_of_wind"), 
-                                levels = c("875", "900", "925", "950", "975", "1000"))
-
-# Check for existing files and remove corresponding existing requests from the request list
-existing_files <- list.files(Local_path, pattern = "^ERA5_.*\\.nc$", full.names = TRUE)
-reqTable$file_exists <- vapply(requests_surface, function(req) file.path(Local_path, req$target) %in% existing_files, FUN.VALUE = logical(1))
-fwrite(reqTable, paste(Local_path, "requestTable.csv", sep="/"))
-
-# Check for which are already downloaded
-Requests2Send <- requests_surface[!reqTable$file_exists]
-print(paste("Number of total requests to be submitted:", length(Requests2Send)))
-
-# Remove partial downloads
-unlink(list.files(Local_path, pattern="ecmwf", full.names = TRUE))
-
-# Submit requests to CDS API - no need for user parameter anymore
-t0 <- Sys.time()
-send_requests(Requests2Send, localPath=Local_path, batch_size = 1)
-difftime(Sys.time(), t0, units = "hours")
-
-
-
-
-
-
-
-#--------------------------------------------------------------------------------------------------------#####
-# STEP 3: subset for points over the sea, calculate flight altitude and direction -----------------------#####
-#--------------------------------------------------------------------------------------------------------#####
 
 #open coastline layer
-coastlines <- st_read("/Users/enourani/Library/CloudStorage/OneDrive-UniversitédeLausanne/WORK/GIS_files/continent_shapefile/World_Continents.shp") %>%
+coastlines <- st_read("/Users/enourani/Library/CloudStorage/OneDrive-UniversitédeLausanne/WORK/GIS_files/continent_shapefile/World_Continents.shp") %>%
   st_crop(xmin = -17, xmax = 45, ymin = -35.6, ymax = 67) %>%
   st_union()
 
@@ -154,11 +61,11 @@ over_sea <- cleaned_gps  %>%
   #calculate flight direction
   mutate(flight_direction = set_units(mt_azimuth(.), "degrees") %>% as.numeric()) %>% #change units to deg
   mt_as_event_attribute(., names(mt_track_data(.))) %>% #after this point we lose the move2 class, so keep the attributes
-  st_difference(coastlines) 
+  st_difference(coastlines)
 
 saveRDS(over_sea, file = "cleaned_gps_over_sea.rds")
 
-geo <- rast("/Users/enourani/Library/CloudStorage/OneDrive-UniversitédeLausanne/WORK/GIS_files/EGM96_us_nga_egm96_15.tif")
+geo <- rast("/Users/enourani/Library/CloudStorage/OneDrive-UniversitédeLausanne/WORK/GIS_files/EGM96_us_nga_egm96_15.tif")
 
 over_sea <- over_sea %>%
   units::drop_units() %>%
@@ -168,27 +75,20 @@ over_sea <- over_sea %>%
 
 
 #look at one sample
-one <- over_sea %>% 
+one <- over_sea %>%
   filter(individual_local_identifier == "D225_236")
 
 mapview(one, zcol = "height_msl", alpha = 0)
 
-
-
-
-
-
-
-
-
-
-###############old code---------------------------------------------------------------------##################
+#------------------------------------------------------------------------#####
+# STEP 4: open previously annotated env data -----------------------------#####
+#------------------------------------------------------------------------#####
 
 #open annotated data from 2024 :p
-annotations <- readRDS("/Users/enourani/Library/CloudStorage/OneDrive-UniversitédeLausanne/WORK/Projects/HB_ontogeny_eobs/R_files/sea_gps_seg_ann.rds") %>% 
+annotations <- readRDS("/Users/enourani/Library/CloudStorage/OneDrive-UniversitédeLausanne/WORK/Projects/HB_ontogeny_eobs/R_files/sea_gps_seg_ann.rds") %>%
   st_drop_geometry()
 
-over_sea_ann <- over_sea %>% 
+over_sea_ann <- over_sea %>%
   left_join(annotations %>% select(c(local_identifier, timestamp, u_950, v_950, geopotential, blh, sst, u_10m, v_10m, t2m, delta_t, wind_speed_950, wind_speed_10m)),
             by = c("individual_local_identifier" = "local_identifier", "timestamp"))
 
@@ -196,13 +96,13 @@ over_sea_ann <- over_sea %>%
 #sample with full circles over the sea: D329_014
 #shallow soaring example: D225_236 (from 2022)
 #look at one sample
-one <- over_sea_ann %>% 
+one <- over_sea_ann %>%
   filter(individual_local_identifier == "D225_236")
 
 mapview(one, zcol = "wind_speed_10m.y", alpha = 0)
 
 #------------------------------------------------------------------------#####
-# STEP 4: track segmentation --------------------------------------------#####
+# STEP 5: track segmentation --------------------------------------------#####
 #------------------------------------------------------------------------#####
 
 # net-360 signed-rotation + validity-gate + gap-based thermal grouping,
@@ -575,7 +475,3 @@ ggplot(chunk_zoom, aes(x = lon, y = lat, group = seg_id)) +
                         breaks = seq(-vs_color_lim, vs_color_lim, 1)) +
   labs(x = "longitude", y = "latitude") +
   theme_linedraw()
-
-
-
-

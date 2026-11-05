@@ -279,9 +279,9 @@ ggplot(
 
 
 ##v wobble
-(v_wobble <- ggplot(circling_data, aes(x = mean_pitch_sd, y = life_stage, color = life_stage, fill = life_stage)) + 
+(v_wobble <- ggplot(circling_data, aes(x = mean_pitch_sd, y = life_stage, color = life_stage, fill = life_stage)) +
     stat_density_ridges(jittered_points = F, rel_min_height = .01,
-                        point_shape = "|", point_size = 3, point_alpha = 0.8, 
+                        point_shape = "|", point_size = 3, point_alpha = 0.8,
                         calc_ecdf = FALSE, panel_scaling = FALSE, alpha = 0.2, quantile_lines = TRUE,
                         scale = 1.5, bandwidth = 0.2) +
     labs(y = "", x = "Vertical wobble") +
@@ -295,4 +295,49 @@ ggplot(
           axis.text = element_text(size = 20),
           axis.title = element_text(size = 20, margin = margin(t = 1)),  # Adjust the top margin for space
           axis.title.x = element_text(margin = margin(t = 20))) )
+
+
+#---------------------------------------------------------------------------------
+## Step 2: Wobble across time of day                                         #####
+#---------------------------------------------------------------------------------
+
+tod_data <- circling_data %>%
+  mutate(hour_of_day = hour(start_timestamp) + minute(start_timestamp) / 60)
+
+(h_tod <- ggplot(tod_data, aes(x = hour_of_day, y = mean_yaw_sd, color = life_stage, fill = life_stage)) +
+    geom_point(alpha = 0.05, size = 0.4) +
+    geom_smooth(method = "gam", formula = y ~ s(x, bs = "cc", k = 8),
+                method.args = list(method = "REML"),
+                se = TRUE, alpha = 0.25, linewidth = 0.7) +
+    scale_color_manual(values = stage_colors, name = "Life stage") +
+    scale_fill_manual(values = stage_colors, name = "Life stage") +
+    scale_x_continuous(breaks = seq(4, 22, by = 2), limits = c(4, 22)) +
+    labs(x = "Hour of day (UTC)", y = "Horizontal wobble") +
+    facet_wrap(~ life_stage, nrow = 1) +
+    theme_classic() +
+    theme(text = element_text(size = 11),
+          legend.position = "none",
+          panel.grid.minor = element_line(color = "white"),
+          axis.title.x = element_text(margin = margin(t = 5)))
+)
+
+(v_tod <- ggplot(tod_data, aes(x = hour_of_day, y = mean_pitch_sd, color = life_stage, fill = life_stage)) +
+    geom_point(alpha = 0.05, size = 0.4) +
+    geom_smooth(method = "gam", formula = y ~ s(x, bs = "cc", k = 8),
+                method.args = list(method = "REML"),
+                se = TRUE, alpha = 0.25, linewidth = 0.7) +
+    scale_color_manual(values = stage_colors, name = "Life stage") +
+    scale_fill_manual(values = stage_colors, name = "Life stage") +
+    scale_x_continuous(breaks = seq(4, 22, by = 2), limits = c(4, 22)) +
+    labs(x = "Hour of day (UTC)", y = "Vertical wobble") +
+    facet_wrap(~ life_stage, nrow = 1) +
+    theme_classic() +
+    theme(text = element_text(size = 11),
+          legend.position = "none",
+          panel.grid.minor = element_line(color = "white"),
+          axis.title.x = element_text(margin = margin(t = 5)))
+)
+
+X11(width = 10, height = 5)
+h_tod / v_tod
 
