@@ -35,81 +35,51 @@ gps <- movebank_download_study("European Honey Buzzard_Finland",
 saveRDS(gps, file = "raw_gps_Oct26.rds")
 
 #------------------------------------------------------------------------#####
-# STEP 2: open all GPS data and filter for latitudes --------------------#####
+# STEP 2: open all GPS data and clean track ------------------------------#####
 #------------------------------------------------------------------------#####
-
-gps <- gps %>%
-  filter(between(st_coordinates(.)[,2], 53.5, 61.05) | between(st_coordinates(.)[,2], 28.9, 46.49))
 
 cleaned_gps <- gps |>
   mt_filter_unique(criterion = "first") |>
     mt_clean_track(mass = 1, mode = "flying", remove = TRUE) #max mass in kg
 
-saveRDS(cleaned_gps, file = "cleaned_gps_sea_Oct26.rds")
+saveRDS(cleaned_gps, file = "cleaned_gps_all_Oct26.rds")
 
 #------------------------------------------------------------------------#####
-# STEP 3: subset for points over the sea, calculate flight altitude and direction ---#####
+# STEP 3: calculate flight altitude (height above ground) and direction --#####
 #------------------------------------------------------------------------#####
 
-#open coastline layer
-coastlines <- st_read("/Users/enourani/Library/CloudStorage/OneDrive-UniversitédeLausanne/WORK/GIS_files/continent_shapefile/World_Continents.shp") %>%
-  st_crop(xmin = -17, xmax = 45, ymin = -35.6, ymax = 67) %>%
-  st_union()
-
-#extract points that only fall over the sea... for wind support and crosswind that require flight direction, having the point prior to sea-crossing is useful, so calculate flight direction before spatial subsetting
-over_sea <- cleaned_gps  %>%
+cleaned_gps <- cleaned_gps %>%
   #calculate flight direction
   mutate(flight_direction = set_units(mt_azimuth(.), "degrees") %>% as.numeric()) %>% #change units to deg
-  mt_as_event_attribute(., names(mt_track_data(.))) %>% #after this point we lose the move2 class, so keep the attributes
-  st_difference(coastlines)
-
-saveRDS(over_sea, file = "cleaned_gps_over_sea.rds")
+  mt_as_event_attribute(., names(mt_track_data(.))) #after this point we lose the move2 class, so keep the attributes
 
 geo <- rast("/Users/enourani/Library/CloudStorage/OneDrive-UniversitédeLausanne/WORK/GIS_files/EGM96_us_nga_egm96_15.tif")
+dem <- rast("/Users/enourani/Library/CloudStorage/OneDrive-UniversitédeLausanne/WORK/GIS_files/global_DEM/Elev.tif") #ground elevation DEM
+names(dem) <- "ground_elevation"
 
-over_sea <- over_sea %>%
+cleaned_gps <- cleaned_gps %>%
   units::drop_units() %>%
   extract(x = geo, y = ., method = "simple", bind = T) %>%
+  extract(x = dem, y = ., method = "simple", bind = T) %>%
   st_as_sf() %>%
-  mutate(height_msl = height_above_ellipsoid - geoid_undulation)
+  mutate(height_msl = height_above_ellipsoid - geoid_undulation,
+         height_agl = height_msl - ground_elevation)
 
+saveRDS(cleaned_gps, file = "cleaned_gps_with_altitude.rds")
 
 #look at one sample
-one <- over_sea %>%
+one <- cleaned_gps %>%
   filter(individual_local_identifier == "D225_236")
 
-mapview(one, zcol = "height_msl", alpha = 0)
+mapview(one, zcol = "height_agl", alpha = 0)
 
 #------------------------------------------------------------------------#####
-# STEP 4: open previously annotated env data -----------------------------#####
-#------------------------------------------------------------------------#####
-
-#open annotated data from 2024 :p
-annotations <- readRDS("/Users/enourani/Library/CloudStorage/OneDrive-UniversitédeLausanne/WORK/Projects/HB_ontogeny_eobs/R_files/sea_gps_seg_ann.rds") %>%
-  st_drop_geometry()
-
-over_sea_ann <- over_sea %>%
-  left_join(annotations %>% select(c(local_identifier, timestamp, u_950, v_950, geopotential, blh, sst, u_10m, v_10m, t2m, delta_t, wind_speed_950, wind_speed_10m)),
-            by = c("individual_local_identifier" = "local_identifier", "timestamp"))
-
-
-#sample with full circles over the sea: D329_014
-#shallow soaring example: D225_236 (from 2022)
-#look at one sample
-one <- over_sea_ann %>%
-  filter(individual_local_identifier == "D225_236")
-
-mapview(one, zcol = "wind_speed_10m.y", alpha = 0)
-
-#------------------------------------------------------------------------#####
-# STEP 5: track segmentation --------------------------------------------#####
+# STEP 4: track segmentation ----------------------------------------------#####
 #------------------------------------------------------------------------#####
 
 # net-360 signed-rotation + validity-gate + gap-based thermal grouping,
 # ported from 03_segment.R (laterality/thermalling project). Solar-day tagging and the
 # glide-segment extraction from that script are unrelated to thermal detection and are omitted.
-# One deliberate deviation: 03_segment.R projects local x/y from the bird's first-ever fix; we
-# only have the over-sea subset of the track, so the origin here is the first over-sea fix instead.
 
 min_res_tl <- 2
 sw_tr <- 2
@@ -152,8 +122,7 @@ label_circles <- function(turn, str) {
 #linearly detrends a position vector against time (removes net drift), closed-form least squares
 detr <- function(v, tc, sst) if (sst <= 0) v - mean(v) else (v - mean(v)) - (sum(tc * (v - mean(v))) / sst) * tc
 
-df_hr <- over_sea %>%
-  filter(individual_local_identifier == "D225_236") %>%
+df_hr <- cleaned_gps %>%
   mutate(lon = st_coordinates(.)[,1], lat = st_coordinates(.)[,2]) %>%
   group_split(individual_local_identifier) %>%
   lapply(function(ind){
@@ -173,7 +142,7 @@ df_hr <- over_sea %>%
              x_m = (lon - lon0) * (pi/180) * 6371000 * cos(lat0 * pi/180),
              y_m = (lat - lat0) * (pi/180) * 6371000) %>%
       group_by(burst_id) %>%
-      mutate(altitude_diff = if_else(row_number() == 1, NA, height_msl - lag(height_msl,1)),
+      mutate(altitude_diff = if_else(row_number() == 1, NA, height_agl - lag(height_agl,1)),
              vert_speed = if_else(row_number() == 1, NA, altitude_diff/time_lag_sec),
              turn_angle = if_else(row_number() == 1 | row_number() == n(), NA,
                                   ((lag(azimuth_positive) - azimuth_positive + 180) %% 360) - 180),
@@ -222,7 +191,7 @@ circles <- df_hr %>%
            t_start = min(d$timestamp), t_end = max(d$timestamp),
            dur = as.numeric(difftime(max(d$timestamp), min(d$timestamp), units = "secs")),
            net = sum(d$turn_angle, na.rm = TRUE),
-           alt0 = first(d$height_msl), alt1 = last(d$height_msl),
+           alt0 = first(d$height_agl), alt1 = last(d$height_agl),
            gs_mean = mean(d$ground_speed, na.rm = TRUE),
            ext = max(diff(range(px)), diff(range(py))))
   }) %>%
@@ -250,7 +219,7 @@ valid_circles <- circles %>%
   mutate(circle_id = sprintf("%s_c%02d", track_flight_seg_id, nth_circle_in_thermal)) %>%
   select(individual_local_identifier, cyc, track_flight_seg_id, circle_id, climb, bout_net_climb)
 
-over_sea_classified <- df_hr %>%
+gps_classified <- df_hr %>%
   left_join(circles %>% select(individual_local_identifier, cyc, circle_net = net, circle_dur = dur,
                                 circle_ang_vel = ang_vel, circle_ext = ext, circle_gs_mean = gs_mean,
                                 circle_valid = valid),
@@ -269,23 +238,49 @@ over_sea_classified <- df_hr %>%
 
 
 #sanity check
-mapview(over_sea_classified, zcol ="flight_clust", alpha= 0)
-mapview(over_sea_classified, zcol ="circle_net", alpha= 0)
-mapview(over_sea_classified, zcol ="other_reason", alpha= 0)
+mapview(gps_classified, zcol ="flight_clust", alpha= 0)
+mapview(gps_classified, zcol ="circle_net", alpha= 0)
+mapview(gps_classified, zcol ="other_reason", alpha= 0)
+
+saveRDS(gps_classified, file = "gps_classified.rds")
+
+#------------------------------------------------------------------------#####
+# STEP 5: filter for latitudes and subset for points over the sea --------#####
+#------------------------------------------------------------------------#####
+
+gps_classified <- gps_classified %>%
+  filter(between(st_coordinates(.)[,2], 53.5, 61.05) | between(st_coordinates(.)[,2], 28.9, 46.49))
+
+#open coastline layer
+coastlines <- st_read("/Users/enourani/Library/CloudStorage/OneDrive-UniversitédeLausanne/WORK/GIS_files/continent_shapefile/World_Continents.shp") %>%
+  st_crop(xmin = -17, xmax = 45, ymin = -35.6, ymax = 67) %>%
+  st_union()
+
+over_sea_classified <- gps_classified %>%
+  st_difference(coastlines)
 
 saveRDS(over_sea_classified, file = "over_sea_classified.rds")
 
-thermal_bouts <- over_sea_classified %>%
-  filter(flight_clust == "circular_soaring") %>%
-  group_by(track_flight_seg_id) %>%
-  mutate(bout_duration = sum(time_lag_sec)) %>%
-  ungroup() %>%
-  filter(bout_duration >= min_therm_d) %>%
-  rename(thermal_id = track_flight_seg_id)
+#------------------------------------------------------------------------#####
+# STEP 6: open previously annotated env data -----------------------------#####
+#------------------------------------------------------------------------#####
 
-saveRDS(thermal_bouts, file = "thermal_bouts_over_sea.rds")
+#open annotated data from 2024 :p
+annotations <- readRDS("/Users/enourani/Library/CloudStorage/OneDrive-UniversitédeLausanne/WORK/Projects/HB_ontogeny_eobs/R_files/sea_gps_seg_ann.rds") %>%
+  st_drop_geometry()
+
+over_sea_ann <- over_sea_classified %>%
+  left_join(annotations %>% select(c(local_identifier, timestamp, u_950, v_950, geopotential, blh, sst, u_10m, v_10m, t2m, delta_t, wind_speed_950, wind_speed_10m)),
+            by = c("individual_local_identifier" = "local_identifier", "timestamp"))
 
 
+#sample with full circles over the sea: D329_014
+#shallow soaring example: D225_236 (from 2022)
+#look at one sample
+one <- over_sea_ann %>%
+  filter(individual_local_identifier == "D225_236")
+
+mapview(one, zcol = "wind_speed_10m.y", alpha = 0)
 
 #look at one sample from 2023. this one has full circling bouts
 one <- over_sea_classified %>%
@@ -296,7 +291,7 @@ one <- over_sea_classified %>%
   filter(individual_local_identifier == "D225_236")
 
 mapview(one, zcol = "wind_speed_10m", alpha = 0)
-mapview(one, zcol = "height_msl", alpha = 0)
+mapview(one, zcol = "height_agl", alpha = 0)
 mapview(one, zcol = "heading", alpha = 0) #heading of the device
 
 #sanity check: vertical speed, with color resolution concentrated in the -4 to 4 m/s range
@@ -308,8 +303,18 @@ mapview(one, zcol = "vert_speed", alpha = 0,
 
 
 #------------------------------------------------------------------------#####
-# STEP 6: calculate wind speed from data --------------------------------#####
+# STEP 7: calculate wind speed from data --------------------------------#####
 #------------------------------------------------------------------------#####
+
+thermal_bouts <- over_sea_classified %>%
+  filter(flight_clust == "circular_soaring") %>%
+  group_by(track_flight_seg_id) %>%
+  mutate(bout_duration = sum(time_lag_sec)) %>%
+  ungroup() %>%
+  filter(bout_duration >= min_therm_d) %>%
+  rename(thermal_id = track_flight_seg_id)
+
+saveRDS(thermal_bouts, file = "thermal_bouts_over_sea.rds")
 
 # per thermal bout, following Weinzierl et al. 2016 (Ecology & Evolution, doi: 10.1002/ece3.2585)
 # moveWindSpeed::getWindEstimate() implements their maximum-likelihood wind estimator.
@@ -406,27 +411,27 @@ traj_3d <- over_sea_classified %>%
   filter(individual_local_identifier == "D225_236" & timestamp >= as.Date("2022-10-03")) %>%
   st_drop_geometry()
 
-plot_ly(traj_3d, x = ~x_m, y = ~y_m, z = ~height_msl, color = ~height_msl,
+plot_ly(traj_3d, x = ~x_m, y = ~y_m, z = ~height_agl, color = ~height_agl,
         colors = c("firebrick", "steelblue", "grey70"),
         type = "scatter3d", mode = "lines+markers",
         marker = list(size = 2), line = list(width = 2)) %>%
   layout(scene = list(aspectmode = "data",
                        xaxis = list(title = "x (m)"),
                        yaxis = list(title = "y (m)"),
-                       zaxis = list(title = "height MSL (m)")))
+                       zaxis = list(title = "height AGL (m)")))
 
 #zoom in on one thermal bout to see the circling helix, colored by wind speed
 one_thermal <- thermal_wind %>%
   filter(thermal_id == first(thermal_id)) %>%
   st_drop_geometry()
 
-plot_ly(one_thermal, x = ~x_m, y = ~y_m, z = ~height_msl, color = ~wind_speed,
+plot_ly(one_thermal, x = ~x_m, y = ~y_m, z = ~height_agl, color = ~wind_speed,
         type = "scatter3d", mode = "lines+markers",
         marker = list(size = 3), line = list(width = 2)) %>%
   layout(scene = list(aspectmode = "data",
                        xaxis = list(title = "x (m)"),
                        yaxis = list(title = "y (m)"),
-                       zaxis = list(title = "height MSL (m)")))
+                       zaxis = list(title = "height AGL (m)")))
 
 #static height-vs-latitude profile for the Oct 3rd 14:30-15:30 window
 chunk <- over_sea_classified %>%
@@ -444,13 +449,13 @@ chunk <- over_sea_classified %>%
 #color: concentrate the gradient between -5 and 5 m/s; anything beyond saturates to a single flat color
 vs_color_lim <- 5
 
-ggplot(chunk, aes(x = timestamp, y = height_msl, group = seg_id)) +
+ggplot(chunk, aes(x = timestamp, y = height_agl, group = seg_id)) +
   geom_path(aes(color = vert_speed)) +
   geom_point(aes(color = vert_speed), size = 1) +
   scale_color_gradient2(name = "vertical\nspeed (m/s)", low = "tomato", mid = "white", high = "royalblue", midpoint = 0,
                         limits = c(-vs_color_lim, vs_color_lim), oob = scales::squish,
                         breaks = seq(-vs_color_lim, vs_color_lim, 1)) +
-  labs(x = "timestamp", y = "height above MSL (m)") +
+  labs(x = "timestamp", y = "height above ground (m)") +
   theme_linedraw()
 
 #same chunk, top-down view: longitude vs latitude, same vert_speed coloring as the height-vs-time plot
