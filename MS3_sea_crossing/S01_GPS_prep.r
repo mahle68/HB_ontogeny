@@ -57,6 +57,10 @@ geo <- rast("/Users/enourani/Library/CloudStorage/OneDrive-UniversitédeLausanne
 dem <- rast("/Users/enourani/Library/CloudStorage/OneDrive-UniversitédeLausanne/WORK/GIS_files/global_DEM/Elev.tif") #ground elevation DEM
 names(dem) <- "ground_elevation"
 
+#crop to the tracking data's extent (with a small buffer) instead of holding the global raster in memory
+gps_bbox <- st_bbox(cleaned_gps)
+dem <- crop(dem, ext(gps_bbox["xmin"] - 1, gps_bbox["xmax"] + 1, gps_bbox["ymin"] - 1, gps_bbox["ymax"] + 1))
+
 cleaned_gps <- cleaned_gps %>%
   units::drop_units() %>%
   extract(x = geo, y = ., method = "simple", bind = T) %>%
