@@ -5,6 +5,7 @@
 library(tidyverse)
 library(sf)
 library(mgcv)
+library(mapview)
 
 setwd("/Users/enourani/Library/CloudStorage/OneDrive-UniversitédeLausanne/WORK/Projects/HB_ontogeny_eobs/R_files/")
 
@@ -12,12 +13,24 @@ setwd("/Users/enourani/Library/CloudStorage/OneDrive-UniversitédeLausanne/WORK/
 
 #plot climb rate as a function of latitude, highlight latitudinal zones that correspond to the Baltic, the Mediterranean, and the Sahara desert
 
-gps_classified <- readRDS("gps_classified.rds")
+gps_classified <- readRDS("gps_classified_all_Oct26.rds")
 
 #not restricted to circling bouts: the current circling definition in S01 misses some non-circling soaring, so use the per-fix vertical speed across all flight types instead of the bout-level climb rate for now
+one <- gps_classified %>%
+  filter(individual_local_identifier == "D225_236")
+
+
 sample_fixes <- gps_classified %>%
   st_drop_geometry() %>%
   filter(individual_local_identifier == "D225_236")
+
+#GPS bursts (1 Hz fixes) form burst_id groups with multiple rows; isolated regular tracking fixes are single-row groups
+burst_sizes <- sample_fixes %>%
+  count(burst_id, name = "burst_n")
+
+sample_fixes_vs <- sample_fixes %>%
+  left_join(burst_sizes, by = "burst_id") %>%
+  filter(burst_n >= 3, vert_speed > 0)
 
 #approximate latitudinal bands for the three barriers along this bird's route
 lat_zones <- tibble(zone = factor(c("Sahara", "Mediterranean", "Baltic"), levels = c("Sahara", "Mediterranean", "Baltic")),
@@ -26,9 +39,10 @@ lat_zones <- tibble(zone = factor(c("Sahara", "Mediterranean", "Baltic"), levels
 
 ggplot() +
   geom_rect(data = lat_zones, aes(xmin = xmin, xmax = xmax, ymin = -Inf, ymax = Inf, fill = zone), alpha = 0.15) +
-  geom_point(data = sample_fixes, aes(x = lat, y = vert_speed), size = 0.5, alpha = 0.15) +
-  geom_smooth(data = sample_fixes, aes(x = lat, y = vert_speed), color = "black", se = FALSE) +
+  geom_point(data = sample_fixes_vs, aes(x = lat, y = vert_speed), size = 0.5, alpha = 0.15) +
+  geom_smooth(data = sample_fixes_vs, aes(x = lat, y = vert_speed), color = "black", se = FALSE) +
   scale_fill_manual(values = c("Baltic" = "steelblue", "Mediterranean" = "darkorange", "Sahara" = "goldenrod")) +
+  scale_x_reverse() +
   labs(x = "latitude", y = "vertical speed (m/s)", fill = "", title = "D225_236: vertical speed across latitude") +
   theme_minimal()
 
@@ -39,6 +53,7 @@ ggplot() +
   geom_point(data = sample_fixes, aes(x = lat, y = height_agl), size = 0.5, alpha = 0.15) +
   geom_smooth(data = sample_fixes, aes(x = lat, y = height_agl), color = "black", se = FALSE) +
   scale_fill_manual(values = c("Baltic" = "steelblue", "Mediterranean" = "darkorange", "Sahara" = "goldenrod")) +
+  scale_x_reverse() +
   labs(x = "latitude", y = "height above ground (m)", fill = "", title = "D225_236: flight altitude across latitude") +
   theme_minimal()
 

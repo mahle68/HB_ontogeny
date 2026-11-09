@@ -9,14 +9,15 @@ library(tidyverse)
 library(lubridate)
 library(sf)
 library(move2)
+library(move2utils)
 library(units)
 library(mapview)
 library(terra)
 library(lwgeom)
-library(rgl)
+#library(rgl)
 library(viridis)
 library(moveWindSpeed)
-library(plotly)
+#library(plotly)
 
 #options(rgl.printRglwidget = TRUE)
 
@@ -38,9 +39,17 @@ saveRDS(gps, file = "raw_gps_Oct26.rds")
 # STEP 2: open all GPS data and clean track ------------------------------#####
 #------------------------------------------------------------------------#####
 
-cleaned_gps <- gps |>
-  mt_filter_unique(criterion = "first") |>
-    mt_clean_track(mass = 1, mode = "flying", remove = TRUE) #max mass in kg
+#clean using Kami's ftn
+cleaned_gps <- gps %>% 
+  mt_filter_gps_quality() %>% 
+  mt_filter_movebank_visible() %>% 
+  filter(!st_is_empty(geometry)) %>%  
+  mt_filter_unique() %>% 
+  mt_filter_unique(criterion = "first") %>%  
+arrange(mt_time())
+
+cleaned_gps <- cleaned_gps %>% 
+  mt_clean_track(mass = 1, mode = "flying") #max mass in kg
 
 saveRDS(cleaned_gps, file = "cleaned_gps_all_Oct26.rds")
 
@@ -54,7 +63,7 @@ cleaned_gps <- cleaned_gps %>%
   mt_as_event_attribute(., names(mt_track_data(.))) #after this point we lose the move2 class, so keep the attributes
 
 geo <- rast("/Users/enourani/Library/CloudStorage/OneDrive-UniversitédeLausanne/WORK/GIS_files/EGM96_us_nga_egm96_15.tif")
-dem <- rast("/Users/enourani/Library/CloudStorage/OneDrive-UniversitédeLausanne/WORK/GIS_files/global_DEM/Elev.tif") #ground elevation DEM
+dem <- rast("/Users/enourani/Downloads/wc2.1_30s_elev.tif") #ground elevation DEM
 names(dem) <- "ground_elevation"
 
 #crop to the tracking data's extent (with a small buffer) instead of holding the global raster in memory
@@ -67,15 +76,16 @@ cleaned_gps <- cleaned_gps %>%
   extract(x = dem, y = ., method = "simple", bind = T) %>%
   st_as_sf() %>%
   mutate(height_msl = height_above_ellipsoid - geoid_undulation,
-         height_agl = height_msl - ground_elevation)
+         height_agl = height_msl - ground_elevation,
+         flight_height = coalesce(height_agl, height_msl))
 
-saveRDS(cleaned_gps, file = "cleaned_gps_with_altitude.rds")
+saveRDS(cleaned_gps, file = "cleaned_gps_with_altitude_Oct26.rds")
 
 #look at one sample
 one <- cleaned_gps %>%
   filter(individual_local_identifier == "D225_236")
 
-mapview(one, zcol = "height_agl", alpha = 0)
+mapview(one, zcol = "height_msl", alpha = 0)
 
 #------------------------------------------------------------------------#####
 # STEP 4: track segmentation ----------------------------------------------#####
@@ -146,7 +156,7 @@ df_hr <- cleaned_gps %>%
              x_m = (lon - lon0) * (pi/180) * 6371000 * cos(lat0 * pi/180),
              y_m = (lat - lat0) * (pi/180) * 6371000) %>%
       group_by(burst_id) %>%
-      mutate(altitude_diff = if_else(row_number() == 1, NA, height_agl - lag(height_agl,1)),
+      mutate(altitude_diff = if_else(row_number() == 1, NA, height_msl - lag(height_msl,1)),
              vert_speed = if_else(row_number() == 1, NA, altitude_diff/time_lag_sec),
              turn_angle = if_else(row_number() == 1 | row_number() == n(), NA,
                                   ((lag(azimuth_positive) - azimuth_positive + 180) %% 360) - 180),
@@ -195,7 +205,7 @@ circles <- df_hr %>%
            t_start = min(d$timestamp), t_end = max(d$timestamp),
            dur = as.numeric(difftime(max(d$timestamp), min(d$timestamp), units = "secs")),
            net = sum(d$turn_angle, na.rm = TRUE),
-           alt0 = first(d$height_agl), alt1 = last(d$height_agl),
+           alt0 = first(d$height_msl), alt1 = last(d$height_msl),
            gs_mean = mean(d$ground_speed, na.rm = TRUE),
            ext = max(diff(range(px)), diff(range(py))))
   }) %>%
@@ -220,11 +230,11 @@ valid_circles <- circles %>%
          climb = (alt1 - alt0)/dur,
          bout_net_climb = sum(climb * dur)/sum(dur)) %>%
   ungroup() %>%
-  mutate(circle_id = sprintf("%s_c%02d", track_flight_seg_id, nth_circle_in_thermal)) %>%
-  select(individual_local_identifier, cyc, track_flight_seg_id, circle_id, climb, bout_net_climb)
+  mutate(circle_id = sprintf("%s_c%02d", track_flight_seg_id, nth_circle_in_thermal)) %>% 
+  dplyr::select(individual_local_identifier, cyc, track_flight_seg_id, circle_id, climb, bout_net_climb)
 
 gps_classified <- df_hr %>%
-  left_join(circles %>% select(individual_local_identifier, cyc, circle_net = net, circle_dur = dur,
+  left_join(circles %>% dplyr::select(individual_local_identifier, cyc, circle_net = net, circle_dur = dur,
                                 circle_ang_vel = ang_vel, circle_ext = ext, circle_gs_mean = gs_mean,
                                 circle_valid = valid),
             by = c("individual_local_identifier", "cyc")) %>%
@@ -246,11 +256,13 @@ mapview(gps_classified, zcol ="flight_clust", alpha= 0)
 mapview(gps_classified, zcol ="circle_net", alpha= 0)
 mapview(gps_classified, zcol ="other_reason", alpha= 0)
 
-saveRDS(gps_classified, file = "gps_classified.rds")
+saveRDS(gps_classified, file = "gps_classified_all_Oct26.rds")
 
 #------------------------------------------------------------------------#####
 # STEP 5: filter for latitudes and subset for points over the sea --------#####
 #------------------------------------------------------------------------#####
+
+gps_classified <- readRDS("gps_classified_all_Oct26.rds")
 
 gps_classified <- gps_classified %>%
   filter(between(st_coordinates(.)[,2], 53.5, 61.05) | between(st_coordinates(.)[,2], 28.9, 46.49))
@@ -274,7 +286,7 @@ annotations <- readRDS("/Users/enourani/Library/CloudStorage/OneDrive-Universit�
   st_drop_geometry()
 
 over_sea_ann <- over_sea_classified %>%
-  left_join(annotations %>% select(c(local_identifier, timestamp, u_950, v_950, geopotential, blh, sst, u_10m, v_10m, t2m, delta_t, wind_speed_950, wind_speed_10m)),
+  left_join(annotations %>% dplyr::select(c(local_identifier, timestamp, u_950, v_950, geopotential, blh, sst, u_10m, v_10m, t2m, delta_t, wind_speed_950, wind_speed_10m)),
             by = c("individual_local_identifier" = "local_identifier", "timestamp"))
 
 
@@ -284,18 +296,19 @@ over_sea_ann <- over_sea_classified %>%
 one <- over_sea_ann %>%
   filter(individual_local_identifier == "D225_236")
 
-mapview(one, zcol = "wind_speed_10m.y", alpha = 0)
+mapview(one, zcol = "wind_speed_10m", alpha = 0)
 
-#look at one sample from 2023. this one has full circling bouts
-one <- over_sea_classified %>%
-  filter(individual_local_identifier == "D329_014")
+#look at one sample from 2023. this one has full circling bouts... no env annotations for this one
+#one <- over_sea_ann %>%
+#  filter(individual_local_identifier == "D329_014")
 
 #look at one sample
-one <- over_sea_classified %>%
+one <- over_sea_ann %>%
   filter(individual_local_identifier == "D225_236")
 
 mapview(one, zcol = "wind_speed_10m", alpha = 0)
-mapview(one, zcol = "height_agl", alpha = 0)
+mapview(one, zcol = "height_msl", alpha = 0)
+mapview(one, zcol = "flight_height", alpha= 0)
 mapview(one, zcol = "heading", alpha = 0) #heading of the device
 
 #sanity check: vertical speed, with color resolution concentrated in the -4 to 4 m/s range
