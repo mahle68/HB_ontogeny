@@ -95,6 +95,9 @@ mapview(one, zcol = "height_msl", alpha = 0)
 # ported from 03_segment.R (laterality/thermalling project). Solar-day tagging and the
 # glide-segment extraction from that script are unrelated to thermal detection and are omitted.
 
+
+cleaned_gps <- readRDS("cleaned_gps_with_altitude_Oct26.rds")
+
 min_res_tl <- 2
 sw_tr <- 2
 turn_lo <- 4
@@ -106,6 +109,10 @@ ext_slow <- 10
 av_slow <- 18
 net_lo <- 300
 gs_min <- 2
+spring_swing_lo <- 100
+spring_climb_min <- 0.2
+spring_merge_gap <- 30
+turn_spike_cap <- 90
 
 #accumulates signed turn angle per fix to detect completed circles (net 360 deg); also records why an
 #incomplete rotation ended (glide-reset vs ran out of fixes), to make "other" fixes diagnosable
@@ -137,6 +144,7 @@ label_circles <- function(turn, str) {
 detr <- function(v, tc, sst) if (sst <= 0) v - mean(v) else (v - mean(v)) - (sum(tc * (v - mean(v))) / sst) * tc
 
 df_hr <- cleaned_gps %>%
+ # filter(individual_local_identifier == "D225_236") %>% 
   mutate(lon = st_coordinates(.)[,1], lat = st_coordinates(.)[,2]) %>%
   group_split(individual_local_identifier) %>%
   lapply(function(ind){
@@ -202,17 +210,81 @@ circles <- df_hr %>%
     py <- detr(d$y_m, tc, sst)
     tibble(burst_id = d$burst_id[1],
            behav = d$behav[1],
+           other_reason = d$other_reason[1],
            t_start = min(d$timestamp), t_end = max(d$timestamp),
            dur = as.numeric(difftime(max(d$timestamp), min(d$timestamp), units = "secs")),
            net = sum(d$turn_angle, na.rm = TRUE),
            alt0 = first(d$height_msl), alt1 = last(d$height_msl),
            gs_mean = mean(d$ground_speed, na.rm = TRUE),
-           ext = max(diff(range(px)), diff(range(py))))
+           ext = max(diff(range(px)), diff(range(py))),
+           max_swing = { tv <- if_else(abs(d$turn_angle) > turn_spike_cap, 0, replace_na(d$turn_angle, 0))
+             cs <- cumsum(tv); max(cs) - min(cs) })
   }) %>%
   ungroup() %>%
   mutate(ang_vel = abs(net)/dur,
+         climb = (alt1 - alt0)/dur,
          valid = behav == "circling" & !(ext < ext_hard) & !(ext < ext_slow & ang_vel < av_slow) &
            abs(net) >= net_lo & gs_mean >= gs_min)
+
+#"other" cycles cut short by the glide-reset (other_reason == incomplete_glide_reset) and close in time to
+#the next "other" cycle in the same burst are fragments of one continuous partial-turn excursion; merge them
+#before testing spring criteria, otherwise a chopped-up spring scores low on every fragment
+spring_groups <- circles %>%
+  filter(behav == "other") %>%
+  arrange(individual_local_identifier, burst_id, t_start) %>%
+  group_by(individual_local_identifier, burst_id) %>%
+  mutate(gap_to_next = as.numeric(difftime(lead(t_start), t_end, units = "secs")),
+         bridges_next = !is.na(gap_to_next) & gap_to_next <= spring_merge_gap & other_reason == "incomplete_glide_reset",
+         spring_group_idx = cumsum(row_number() == 1 | !coalesce(lag(bridges_next), FALSE))) %>%
+  ungroup() %>%
+  mutate(spring_group_id = sprintf("%s_b%s_sg%04d", individual_local_identifier, burst_id, spring_group_idx)) %>%
+  dplyr::select(individual_local_identifier, cyc, burst_id, spring_group_id)
+
+df_hr_flat <- df_hr %>% st_drop_geometry()
+
+spring_group_metrics <- spring_groups %>%
+  left_join(circles %>% dplyr::select(individual_local_identifier, cyc, t_start, t_end),
+            by = c("individual_local_identifier", "cyc")) %>%
+  group_by(spring_group_id) %>%
+  summarise(individual_local_identifier = first(individual_local_identifier),
+            burst_id = first(burst_id),
+            t0 = min(t_start), t1 = max(t_end), .groups = "drop") %>%
+  group_by(spring_group_id) %>%
+  group_modify(~{
+    s <- .x
+    fx <- df_hr_flat %>%
+      filter(individual_local_identifier == s$individual_local_identifier, burst_id == s$burst_id,
+             timestamp >= s$t0, timestamp <= s$t1) %>%
+      arrange(timestamp)
+    tv <- if_else(abs(fx$turn_angle) > turn_spike_cap, 0, replace_na(fx$turn_angle, 0))
+    cs <- cumsum(tv)
+    dur <- as.numeric(difftime(max(fx$timestamp), min(fx$timestamp), units = "secs"))
+    tibble(max_swing = max(cs) - min(cs),
+           climb = if_else(dur > 0, (last(fx$height_msl) - first(fx$height_msl))/dur, NA_real_),
+           gs_mean = mean(fx$ground_speed, na.rm = TRUE))
+  }) %>%
+  ungroup() %>%
+  mutate(spring_valid = !is.na(climb) & max_swing >= spring_swing_lo & climb >= spring_climb_min &
+           gs_mean >= gs_min)
+
+circles <- circles %>%
+  left_join(spring_groups %>% dplyr::select(individual_local_identifier, cyc, spring_group_id),
+            by = c("individual_local_identifier", "cyc")) %>%
+  left_join(spring_group_metrics %>% dplyr::select(spring_group_id, spring_valid), by = "spring_group_id") %>%
+  mutate(spring_valid = coalesce(spring_valid, FALSE)) %>%
+  dplyr::select(-spring_group_id)
+
+#calibration check: do "other" bouts separate into a spring-soaring cluster (a sustained single-direction
+#turning excursion, i.e. high max_swing, even if net cancels out because the bout also contains a later
+#reversal) vs noise, given the thresholds above. max_swing is the peak-to-trough range of the cumulative
+#(spike-capped) turn angle within the bout, so it stays high even when net is small due to a mid-bout reversal.
+#here plotted per merged spring_group (post glide-reset-fragment merging), not per raw cycle fragment.
+ggplot(spring_group_metrics, aes(x = max_swing, y = climb, color = spring_valid)) +
+  geom_point(alpha = 0.4) +
+  geom_vline(xintercept = spring_swing_lo, linetype = "dashed") +
+  geom_hline(yintercept = spring_climb_min, linetype = "dashed") +
+  labs(x = "max sustained turn excursion (deg)", y = "climb rate (m/s)", color = "spring_valid") +
+  theme_minimal()
 
 #valid circles within therm_gap (and the same burst) of each other form one thermal; climb/bout_net_climb
 #follow 03_segment.R exactly (duration-weighted mean of per-circle climb, excluding inter-circle gap time)
@@ -236,11 +308,13 @@ valid_circles <- circles %>%
 gps_classified <- df_hr %>%
   left_join(circles %>% dplyr::select(individual_local_identifier, cyc, circle_net = net, circle_dur = dur,
                                 circle_ang_vel = ang_vel, circle_ext = ext, circle_gs_mean = gs_mean,
-                                circle_valid = valid),
+                                circle_max_swing = max_swing, circle_climb = climb,
+                                circle_valid = valid, circle_spring_valid = spring_valid),
             by = c("individual_local_identifier", "cyc")) %>%
   left_join(valid_circles, by = c("individual_local_identifier", "cyc")) %>%
   mutate(flight_clust = case_when(
     behav == "circling" & circle_valid ~ "circular_soaring",
+    behav == "other" & circle_spring_valid ~ "spring_soaring",
     behav == "glide" ~ "gliding",
     TRUE ~ "other"
   ),
@@ -251,12 +325,18 @@ gps_classified <- df_hr %>%
   ))
 
 
-#sanity check
-mapview(gps_classified, zcol ="flight_clust", alpha= 0)
-mapview(gps_classified, zcol ="circle_net", alpha= 0)
-mapview(gps_classified, zcol ="other_reason", alpha= 0)
 
 saveRDS(gps_classified, file = "gps_classified_all_Oct26.rds")
+
+#sanity check. just one bird roughly over the sea so things don't crash
+
+one_sea <- gps_classified %>% 
+  filter(individual_local_identifier == "D225_236") %>% 
+  filter(between(st_coordinates(.)[,2], 29, 37))
+
+mapview(one_sea, zcol ="flight_clust", alpha= 0)
+mapview(one_sea, zcol ="heading", alpha= 0)
+
 
 #------------------------------------------------------------------------#####
 # STEP 5: filter for latitudes and subset for points over the sea --------#####
@@ -450,50 +530,3 @@ plot_ly(one_thermal, x = ~x_m, y = ~y_m, z = ~height_agl, color = ~wind_speed,
                        yaxis = list(title = "y (m)"),
                        zaxis = list(title = "height AGL (m)")))
 
-#static height-vs-latitude profile for the Oct 3rd 14:30-15:30 window
-chunk <- over_sea_classified %>%
-  st_drop_geometry() %>%
-  filter(month(timestamp) == 10, day(timestamp) == 3,
-         between(hour(timestamp)*60 + minute(timestamp), 14*60+30, 15*60+30)) %>%
-  arrange(timestamp) %>%
-  mutate(seg_change = flight_clust != lag(flight_clust) | row_number() == 1,
-         seg_id = cumsum(coalesce(seg_change, TRUE))) %>%
-  group_by(seg_id) %>%
-  mutate(seg_duration = as.numeric(difftime(max(timestamp), min(timestamp), units = "secs")),
-         cum_turn_deg = cumsum(replace_na(abs(turn_angle), 0))) %>%
-  ungroup()
-
-#color: concentrate the gradient between -5 and 5 m/s; anything beyond saturates to a single flat color
-vs_color_lim <- 5
-
-ggplot(chunk, aes(x = timestamp, y = height_agl, group = seg_id)) +
-  geom_path(aes(color = vert_speed)) +
-  geom_point(aes(color = vert_speed), size = 1) +
-  scale_color_gradient2(name = "vertical\nspeed (m/s)", low = "tomato", mid = "white", high = "royalblue", midpoint = 0,
-                        limits = c(-vs_color_lim, vs_color_lim), oob = scales::squish,
-                        breaks = seq(-vs_color_lim, vs_color_lim, 1)) +
-  labs(x = "timestamp", y = "height above ground (m)") +
-  theme_linedraw()
-
-#same chunk, top-down view: longitude vs latitude, same vert_speed coloring as the height-vs-time plot
-ggplot(chunk, aes(x = lon, y = lat, group = seg_id)) +
-  geom_path(aes(color = vert_speed)) +
-  geom_point(aes(color = vert_speed), size = 1) +
-  scale_color_gradient2(name = "vertical\nspeed (m/s)", low = "tomato", mid = "white", high = "royalblue", midpoint = 0,
-                        limits = c(-vs_color_lim, vs_color_lim), oob = scales::squish,
-                        breaks = seq(-vs_color_lim, vs_color_lim, 1)) +
-  labs(x = "longitude", y = "latitude") +
-  theme_linedraw()
-
-#same top-down view, zoomed in to 14:50-15:05
-chunk_zoom <- chunk %>%
-  filter(between(hour(timestamp)*60 + minute(timestamp), 14*60+59, 15*60+1))
-
-ggplot(chunk_zoom, aes(x = lon, y = lat, group = seg_id)) +
-  geom_path(aes(color = vert_speed)) +
-  geom_point(aes(color = vert_speed), size = 1) +
-  scale_color_gradient2(name = "vertical\nspeed (m/s)", low = "tomato", mid = "white", high = "royalblue", midpoint = 0,
-                        limits = c(-vs_color_lim, vs_color_lim), oob = scales::squish,
-                        breaks = seq(-vs_color_lim, vs_color_lim, 1)) +
-  labs(x = "longitude", y = "latitude") +
-  theme_linedraw()
